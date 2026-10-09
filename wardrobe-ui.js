@@ -1,6 +1,8 @@
 import { CHARACTER_DRAFT_FIELDS, buildCharacterDraftMessages, parseCharacterDraft } from './character-draft.js';
 import { mergePromptTags, paginateItems, deletionImpact, deleteLibraryItem, restoreLibraryItem, library, roleCombinations, bindCombination, unbindCombination, names, newId, scene, latestBody, validSource, resolveWear, applyWear, matchOutfits, selectedOutfitKeys, saveCover, parseCivitLink, civitGroups, importCivitGroups, chatKey } from './wardrobe-store.js';
 import { attachWikiLookup } from './role-wiki.js';
+import { mountCharacterLoraEditor } from './character-lora-ui.js';
+import { normalizeLoraBinding } from './character-lora.js';
 import { openOutfitVision, requestOutfitVision } from './outfit-vision.js';
 let deps, root, page='wizard', chosenRole='', chosenCombo='', filter='', jobs=new Map(), renderSerial=0, libraryPages={roles:1,outfits:1}, wizardStep=null, wearFilter='', wearPage=1, draftModes=new Map(), draftEnables=new Map(), bulkOutfits=new Map();
 const el=(tag,text='',cls='')=>{const n=document.createElement(tag);n.textContent=text;n.className=cls;return n;};
@@ -107,8 +109,10 @@ function render(){
 function edit(type,id,targetRoleId=null){const s=settings(),w=library(s),record=w[type][id],presets=type==='roles'?s.characterPresets:s.outfitPresets,p=presets?.[record?.key]||{},d=dialog(type==='roles'?'角色资料':'服装资料');
  const users=type==='outfits'?Object.values(w.roles).filter(r=>roleCombinations(s,r.id).some(c=>c.outfitId===id)).map(r=>r.key):[];if(users.length)d.append(el('p',`这套服装被 ${users.join('、')} 使用；编辑共享资料会影响这些角色。若只想补充当前角色，可改名后点“复制为新款”。`));
  const cn=field(d,'中文名称 / 别名（用 | 分隔）',p.nameCN||record?.key||''),en=field(d,'英文名称 / 别名',p.nameEN||'');const promptName=type==='roles'?field(d,'生图名称（英文 / 罗马音，给 ComfyUI）',p.promptName||''):null;let wikiSource=p.wikiNameSource||null;if(promptName){d.append(el('p','名称 / 别名用于正文识别；生图名称单独注入提示词，可填写模型习惯的姓名顺序。'));attachWikiLookup(d,{nameInput:cn,aliasInput:cn,promptInput:promptName,signal:d.controller.signal,onApply:value=>{wikiSource=value;}});}const trigger=type==='outfits'?field(d,'LoRA 激活词（生图时加入）',p.loraTriggerWords??record?.civit?.activation??'','textarea'):null;const fields=type==='roles'?['characterTraits','facialFeatures','upperBodySFW','fullBodySFW']:['upperBody','fullBody','upperBodyBack','fullBodyBack'];const inputs=fields.map(k=>[k,field(d,({characterTraits:'固定特征',facialFeatures:'面部特征',upperBodySFW:'固定上半身',fullBodySFW:'固定下半身',upperBody:'上装提示词',fullBody:'下装 / 鞋袜提示词',upperBodyBack:'上装背面',fullBodyBack:'下装背面'})[k],p[k]||'','textarea')]);
+ const loraEditor=type==='roles'?mountCharacterLoraEditor(d,p,()=>deps.getLoras?.()):null;
  if(record?.civit)d.append(el('pre',JSON.stringify(record.civit,null,2)));
  const write=(copy)=>{const name=cn.value.trim();if(!name)throw Error('请填写名称。');const key=name.split('|')[0].trim();if(presets?.[key]&&(!record||key!==record.key))throw Error('同名资料已存在，请使用其他名称。');const next={...structuredClone(p),nameCN:name,nameEN:en.value.trim()};for(const [k,n]of inputs)next[k]=n.value.trim();if(type==='roles'){next.outfits||=[];next.promptName=promptName.value.trim();if(wikiSource)next.wikiNameSource=wikiSource;}else{next.loraTriggerWords=trigger.value.trim();next.photoImageIds||=[];next.photoPrompt=[next.upperBody,next.fullBody].filter(Boolean).join(', ');}
+ if(loraEditor)next.loraBindings=loraEditor.read();
  const target=type==='roles'?(s.characterPresets ||= {}):(s.outfitPresets ||= {});target[key]=next;
  if(record&&!copy&&key!==record.key){const old=record.key;delete target[old];record.key=key;
  if(type==='roles'){for(const group of [s.characterEnablePresets,s.characterCommonPresets])for(const list of Object.values(group||{}))list.characters=(list.characters||[]).map(x=>typeof x==='string'?(x===old?key:x):{...x,characterPresetName:x.characterPresetName===old?key:x.characterPresetName});if(s.characterPresetId===old)s.characterPresetId=key;}
@@ -156,6 +160,7 @@ function importLibrary(targetRoleId=null){
      if(typeof records!=='object'||Array.isArray(records))throw Error('资料格式错误。');const current=type==='roles'?settings().characterPresets:settings().outfitPresets;
      for(const [key,p]of Object.entries(records)){
        if(!p||typeof p!=='object'||Array.isArray(p))throw Error('资料格式错误。');if(['__proto__','constructor','prototype'].includes(key))continue;for(const field of ['nameCN','nameEN','promptName','loraTriggerWords','upperBody','fullBody','upperBodyBack','fullBodyBack','photoPrompt','characterTraits','facialFeatures','upperBodySFW','fullBodySFW'])if(p[field]!==undefined&&typeof p[field]!=='string')throw Error('提示词字段必须是文本。');for(const field of ['outfits','photoImageIds'])if(p[field]!==undefined&&(!Array.isArray(p[field])||p[field].some(x=>typeof x!=='string')))throw Error('服装或图片列表格式错误。');
+       if(p.loraBindings!==undefined){if(!Array.isArray(p.loraBindings))throw Error('LoRA 绑定必须是列表。');p.loraBindings=p.loraBindings.map(normalizeLoraBinding);}
        const row=el('label','','wardrobe-checkbox'),check=el('input');check.type='checkbox';check.checked=targetRoleId?true:!current?.[key];check.disabled=!targetRoleId&&!!current?.[key];row.append(check,el('span',`${type==='roles'?'角色':'服装'}：${key}${current?.[key]?'（已有资料保留；添加关联）':''}`));area.append(row);items.push({type,key,p,check,existing:!!current?.[key]});
      }
    }

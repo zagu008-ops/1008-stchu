@@ -18,6 +18,7 @@
  */
 import { normalizeStoryboardCount, buildStoryboardInstructions, validateStoryboardImages } from "./storyboard.js";
 import { mergePromptTags } from "./wardrobe-store.js";
+import { prepareCharacterTags, appendCharacterLoras, applyCharacterLorasToWorkflow } from "./character-lora.js";
 import { initializeWardrobe, mountWardrobe, wardrobeOutfits, wardrobeSelectedOutfits } from "./wardrobe-ui.js";
 import { openOutfitVision } from "./outfit-vision.js";
 import { initializeCharacterSync, bindCharacterSyncControls, openCharacterSync } from "./character-sync.js";
@@ -31618,6 +31619,7 @@ function saveCurrentCharacterData(presetId) {
   }
   const existingPreset = settings3.characterPresets[presetId] || {};
   preset.promptName = existingPreset.promptName || "";
+  preset.loraBindings = (existingPreset.loraBindings || []).map(binding => ({ ...binding }));
   if (existingPreset.wikiNameSource) preset.wikiNameSource = existingPreset.wikiNameSource;
   normalizeCharacterPreset(existingPreset);
   preset.photoMedia = existingPreset.photoMedia || [];
@@ -47178,7 +47180,7 @@ async function replacepro(payload, json4) {
   JSON.parse(json4);
   return json4;
 }
-async function generateComfyUIImage({ prompt: link, width: Xwidth, height: Xheight, change, extraNegativePrompt }) {
+async function generateComfyUIImage({ prompt: link, width: Xwidth, height: Xheight, change, extraNegativePrompt, characterBody = "" }) {
   clearLog();
   let taskType = TaskType.COMFYUI_IMG;
   let taskTypeName = "ComfyUI \u666E\u901A\u751F\u56FE";
@@ -47245,10 +47247,12 @@ async function generateComfyUIImage({ prompt: link, width: Xwidth, height: Xheig
     }
     change = change.replace(sizeRegex, "");
   }
-  link = processCharacterPrompt(link);
-  link = await stripChineseAnnotations(link);
-  change = processCharacterPrompt(change);
-  change = await stripChineseAnnotations(change);
+  const characterSelection = prepareCharacterTags(change?.trim() ? change : link, extension_settings49[extensionName], characterBody);
+  // Resolve only the selected tag, so an unused original cannot leak characters/negatives.
+  if (change?.trim()) change = characterSelection.tag; else link = characterSelection.tag;
+  const selectedCharacterPrompt = await stripChineseAnnotations(processCharacterPrompt(characterSelection.tag));
+  if (change?.trim()) change = selectedCharacterPrompt; else link = selectedCharacterPrompt;
+  if (characterSelection.characters.length) addLog(`[角色自动匹配] ${characterSelection.characters.join("、")}；LoRA：${characterSelection.bindings.map(x=>x.file).join("、") || "未绑定"}`);
   addLog(`\u5F00\u59CB ComfyUI \u751F\u56FE\u6D41\u7A0B\u3002\u5BA2\u6237\u7AEF\u4E3A${extension_settings49[extensionName].client}`);
   addLog(`\u8BF7\u6C42\u5DE5\u4F5C\u6D41id - ${extension_settings49[extensionName].workerid}`);
   addLog(`\u8BF7\u6C42\u5C3A\u5BF8: \u5BBD\u5EA6 - ${Xwidth || "\u9ED8\u8BA4"}, \u9AD8\u5EA6 - ${Xheight || "\u9ED8\u8BA4"}`);
@@ -47308,6 +47312,8 @@ async function generateComfyUIImage({ prompt: link, width: Xwidth, height: Xheig
     extension_settings49[extensionName].AQT_comfyui,
     insertions
   );
+  prompt2 = appendCharacterLoras(prompt2, characterSelection.bindings);
+  const activeLoraWorkflow = /\{(?:ComfyUI)?局部重绘\}/.test(change) ? extension_settings49[extensionName].editWorker : extension_settings49[extensionName].worker;
   prompt2 = replaceLoraTags(prompt2);
   function replaceLoraTags(input, addClipSkip = false) {
     const regex = /<lora:([^:>]+):([^>]+)>/g;
@@ -47329,7 +47335,7 @@ async function generateComfyUIImage({ prompt: link, width: Xwidth, height: Xheig
       }
     });
   }
-  if (extension_settings49[extensionName].worker.includes("WeiLin") && !extension_settings49[extensionName].worker.includes("WeiLinPromptUI")) {
+  if (activeLoraWorkflow.includes("WeiLin") && !activeLoraWorkflow.includes("WeiLinPromptUI")) {
     prompt2 = replaceLoraTags(prompt2, true);
     prompt2 = prompt2.replace(/<lora:([^:>]+)(\.safetensors)?:([^>]+)>/g, (match, filename, ext, weight) => {
       if (!prompt2.includes(".safetensors")) {
@@ -47338,7 +47344,7 @@ async function generateComfyUIImage({ prompt: link, width: Xwidth, height: Xheig
       return match;
     });
   }
-  if (extension_settings49[extensionName].worker.includes("WeiLinPromptUI")) {
+  if (activeLoraWorkflow.includes("WeiLinPromptUI")) {
     prompt2 = replaceLoraTags(prompt2, true);
     prompt2 = prompt2.replaceAll("<lora:", "<wlr:");
     prompt2 = prompt2.replaceAll(".safetensors", "");
@@ -47451,7 +47457,7 @@ Scheduler: ${payload.scheduler}
     throw new Error(`ComfyUI \u5DE5\u4F5C\u6D41 JSON \u65E0\u6548: ${e.message}`);
   }
   payload = await replacepro(payload, workflowToUse);
-  payload = JSON.stringify({ client_id: clientId, prompt: JSON.parse(payload) });
+  payload = JSON.stringify({ client_id: clientId, prompt: applyCharacterLorasToWorkflow(JSON.parse(payload), characterSelection.bindings) });
   addLog(`\u53D1\u9001\u5230 ComfyUI \u7684\u6700\u7EC8 payload: ${payload} `);
   try {
     if (!taskQueue.isTaskInQueue(taskId)) {
@@ -47748,7 +47754,7 @@ async function comfyuigenerate(requestData) {
     return;
   }
   try {
-    const { image: imageUrl, change: returnedChange, isVideo, format, genParams } = await generateComfyUIImage({ prompt: prompt2, width, height, change, extraNegativePrompt });
+    const { image: imageUrl, change: returnedChange, isVideo, format, genParams } = await generateComfyUIImage({ prompt: prompt2, width, height, change, extraNegativePrompt, characterBody: requestData.characterBody || "" });
     if (extension_settings49[extensionName].cache != "0") {
       await setItemImg(prompt2, imageUrl, {
         change: returnedChange,
@@ -53336,6 +53342,11 @@ var init_generation = __esm({
             activeMode,
             isVideo: isVideoMode
           };
+          // Read the source message for this image, never the most recent unrelated reply.
+          let roleMessage = button.closest(".mes");
+          if (!roleMessage) { try { roleMessage = button.ownerDocument.defaultView?.frameElement?.closest(".mes"); } catch {} }
+          const roleMessageId = roleMessage?.getAttribute("mesid");
+          if (roleMessageId !== null && roleMessageId !== undefined) requestData.characterBody = getContext().chat?.[Number(roleMessageId)]?.mes || "";
           if (requestChange) {
             requestData.change = requestChange;
             if (requestChange.includes("{\u4FEE\u56FE}")) {
@@ -113053,6 +113064,7 @@ async function main() {
   extension_settings116[extensionName] = mergedSettings;
   initializeWardrobe({
     getSettings: () => extension_settings116[extensionName], getContext,
+    getLoras: async () => { init_configDatabase(); return await getComfyuiCache("loras") || []; },
     events: eventSource, eventTypes: event_types, save: saveSettingsDebounced72,
     notify: (message, success) => success ? toastr.success(message) : toastr.warning(message),
     getImage: async id => { init_configDatabase(); return getConfigImage(id); },

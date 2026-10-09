@@ -1,0 +1,13 @@
+<!doctype html><meta charset="utf-8"><title>角色 LoRA 链路验证</title>
+<style>body{font:16px system-ui;max-width:960px;margin:30px auto;background:#f6f4fa;color:#252034}fieldset{border:1px solid #c5bad8;border-radius:12px;margin:20px 0;padding:20px}label{display:flex;gap:14px;margin:12px 0}label span{min-width:250px}input{padding:8px;flex:1}button{padding:10px;margin:8px;border:0;border-radius:6px;background:#63408e;color:white}textarea{width:95%;padding:12px;height:65px}pre{white-space:pre-wrap;padding:20px;background:white;border-radius:12px}</style>
+<h1>角色资料 → tag 替换 → LoRA 注入</h1><p>模拟资料，仅用于验证界面与最终请求，不调用 LLM 或 ComfyUI 出图。</p><main id="editor"></main>
+<button id="save">保存绑定</button><p id="status"></p><label>图片 tag<textarea id="tag">1girl, 深雪, blonde hair, red eyes, smiling, library</textarea></label><button id="run">预览链路</button><pre id="result"></pre>
+<script type="module">
+import {mountCharacterLoraEditor} from '../character-lora-ui.js';
+import {prepareCharacterTags,appendCharacterLoras} from '../character-lora.js';
+const role={nameCN:'司波深雪|深雪',nameEN:'shiba miyuki',promptName:'miyuki shiba',facialFeatures:'black hair, blue eyes',loraBindings:[]};
+const files=['miyuki-shiba-s2-illustriousxl-lora-nochekaiser.safetensors','characters/another-character.safetensors'];
+const editor=mountCharacterLoraEditor(document.querySelector('#editor'),role,async()=>files);
+document.querySelector('#save').onclick=()=>{try{role.loraBindings=editor.read();document.querySelector('#status').textContent='已保存 '+role.loraBindings.length+' 个绑定';}catch(e){document.querySelector('#status').textContent=e.message;}};
+document.querySelector('#run').onclick=()=>{try{const settings={characterPresets:{snow:role},characterEnablePresetId:'cast',characterEnablePresets:{cast:{characters:['snow']}}};const result=prepareCharacterTags(document.querySelector('#tag').value,settings);const expanded=result.tag.replace(/\$[^$]+\$/g,[role.promptName,role.facialFeatures].join(', '));document.querySelector('#result').textContent=JSON.stringify({角色:result.characters,替换结果:result.tag,最终提示词:appendCharacterLoras(expanded,result.bindings)},null,2);}catch(e){document.querySelector('#result').textContent=e.message;}};
+</script>
