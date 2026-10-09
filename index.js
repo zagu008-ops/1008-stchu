@@ -17,6 +17,10 @@
  * ====================================================
  */
 import { normalizeStoryboardCount, buildStoryboardInstructions, validateStoryboardImages } from "./storyboard.js";
+import { mergePromptTags } from "./wardrobe-store.js";
+import { initializeWardrobe, mountWardrobe, wardrobeOutfits, wardrobeSelectedOutfits } from "./wardrobe-ui.js";
+import { openOutfitVision } from "./outfit-vision.js";
+import { initializeCharacterSync, bindCharacterSyncControls, openCharacterSync } from "./character-sync.js";
 import { saveSettingsDebounced as saveSettingsDebounced2 } from "../../../../script.js";
 import { extension_settings } from "../../../extensions.js";
 import { saveSettingsDebounced as saveSettingsDebounced3 } from "../../../../script.js";
@@ -27923,6 +27927,21 @@ function setupOutfitControls(container) {
     document.getElementById("outfit_photo_upload_input")?.click();
   });
   container.find("#outfit_photo_upload_input").on("change", handleOutfitPhotoUpload);
+  container.find("#outfit_photo_reverse").on("click", () => {
+    openOutfitVision({
+      getSettings: () => extension_settings23[extensionName],
+      getImage: getConfigImage,
+      save: saveSettingsDebounced16,
+      refresh: loadOutfitPreset,
+      notify: (message, success) => success ? toastr.success(message) : toastr.warning(message),
+      network: {
+        getHeaders: () => getRequestHeaders(window.token),
+        parseHeaders: parseCustomHeaders,
+        parseBody: parseCustomBody,
+        includeHeaders: buildProxyIncludeHeaders,
+      },
+    }).catch(() => toastr.error("服装反推窗口加载失败，请刷新页面后重试。"));
+  });
   container.find("#outfit_send_photo").on("change", function() {
     const settings4 = extension_settings23[extensionName];
     const presetId = settings4.outfitPresetId;
@@ -28110,7 +28129,10 @@ function saveCurrentOutfitData(presetId) {
     preset.sendPhoto = sendPhotoElement.checked;
   }
   const existingPreset = settings3.outfitPresets[presetId] || {};
+  if (existingPreset.loraTriggerWords !== undefined) preset.loraTriggerWords = existingPreset.loraTriggerWords;
   preset.photoImageIds = existingPreset.photoImageIds || [];
+  preset.selectedPhotoIndex = existingPreset.selectedPhotoIndex || 0;
+  if (existingPreset.photoMedia) preset.photoMedia = existingPreset.photoMedia;
   settings3.outfitPresets[presetId] = preset;
   saveSettingsDebounced16();
 }
@@ -29134,8 +29156,9 @@ function getCharacterPromptData(character, outfitsText = "", mediaInfo = {}) {
   if (!character) return {};
   return {
     nameCN: character.nameCN || "",
-    nameEN: character.nameEN ? character.nameEN.split("|")[0].trim() : "",
-    traits: character.characterTraits || "",
+    nameEN: character.promptName?.trim() || (character.nameEN ? character.nameEN.split("|")[0].trim() : ""),
+    promptName: character.promptName || "",
+    traits: mergePromptTags(character.promptName, character.characterTraits),
     facial: character.facialFeatures || "",
     facialBack: character.facialFeaturesBack || "",
     upperSFW: character.upperBodySFW || "",
@@ -29164,8 +29187,9 @@ function getOutfitPromptData(outfit) {
   return {
     nameCN: outfit.nameCN || "",
     nameEN: outfit.nameEN ? outfit.nameEN.split("|")[0].trim() : "",
-    upperBody: outfit.upperBody || "",
-    upperBodyBack: outfit.upperBodyBack || "",
+    upperBody: mergePromptTags(outfit.loraTriggerWords, outfit.upperBody),
+    loraTriggerWords: outfit.loraTriggerWords || "",
+    upperBodyBack: mergePromptTags(outfit.loraTriggerWords, outfit.upperBodyBack),
     // 字段名是 fullBody*，但 UI 文案是「下半身」，两套名字都提供
     fullBody: outfit.fullBody || "",
     fullBodyBack: outfit.fullBodyBack || "",
@@ -29253,9 +29277,10 @@ function getActiveInjectionTemplates() {
   };
 }
 function renderCharacterOutfitsText(character, outfitPresets, innerOutfitTemplate) {
-  if (!Array.isArray(character?.outfits) || character.outfits.length === 0) return "";
+  const chosenOutfits = wardrobeOutfits(character);
+  if (!chosenOutfits.length) return "";
   const blocks = [];
-  for (const outfitId of character.outfits) {
+  for (const outfitId of chosenOutfits) {
     const outfit = outfitPresets?.[outfitId];
     if (!outfit) continue;
     const rendered = applyInjectionTemplate(innerOutfitTemplate, getOutfitPromptData(outfit));
@@ -29938,12 +29963,13 @@ function generateOutfitEnableListText() {
   const settings3 = extension_settings25[extensionName];
   const enablePresetId = settings3.outfitEnablePresetId;
   const enablePreset = settings3.outfitEnablePresets?.[enablePresetId];
-  if (!enablePreset || !Array.isArray(enablePreset.outfits) || enablePreset.outfits.length === 0) {
+  const selectedKeys = wardrobeSelectedOutfits() ?? enablePreset?.outfits ?? [];
+  if (!selectedKeys.length) {
     return "\u6682\u672A\u914D\u7F6E\u901A\u7528\u670D\u88C5";
   }
   const templates = getActiveInjectionTemplates();
   const outfitList = [];
-  for (const outfitId of enablePreset.outfits) {
+  for (const outfitId of selectedKeys) {
     const outfit = settings3.outfitPresets?.[outfitId];
     if (!outfit) continue;
     const rendered = applyInjectionTemplate(
@@ -29971,10 +29997,11 @@ function generateCommonCharacterListText() {
     if (!character) continue;
     const rendered = applyInjectionTemplate(
       templates.commonCharacterListTemplate,
-      getCharacterPromptData(character)
+      getCharacterPromptData(character, renderCharacterOutfitsText(character, settings3.outfitPresets, templates.innerOutfitTemplate))
     ).trim();
     if (rendered) {
-      characterList.push(rendered);
+      const outfitsText = renderCharacterOutfitsText(character, settings3.outfitPresets, templates.innerOutfitTemplate);
+      characterList.push(rendered + (outfitsText && !/\{outfits\}/i.test(templates.commonCharacterListTemplate) ? outfitsText : ""));
     }
   }
   return characterList.join("\n");
@@ -30028,7 +30055,7 @@ async function getEnabledCharacterImages(triggerText = null) {
       }
     }
     if (Array.isArray(character.outfits)) {
-      for (const outfitId of character.outfits) {
+      for (const outfitId of wardrobeOutfits(character)) {
         const outfit = settings3.outfitPresets?.[outfitId];
         if (!outfit || !outfit.sendPhoto) continue;
         const outfitImageIds = outfit.photoImageIds || [];
@@ -30063,11 +30090,12 @@ async function getEnabledOutfitImages() {
   const settings3 = extension_settings25[extensionName];
   const enablePresetId = settings3.outfitEnablePresetId;
   const enablePreset = settings3.outfitEnablePresets?.[enablePresetId];
-  if (!enablePreset || !Array.isArray(enablePreset.outfits) || enablePreset.outfits.length === 0) {
+  const selectedKeys = wardrobeSelectedOutfits() ?? enablePreset?.outfits ?? [];
+  if (!selectedKeys.length) {
     return [];
   }
   const collectedImages = [];
-  for (const outfitId of enablePreset.outfits) {
+  for (const outfitId of selectedKeys) {
     const outfit = settings3.outfitPresets?.[outfitId];
     if (!outfit) continue;
     if (!outfit.sendPhoto) continue;
@@ -31284,6 +31312,7 @@ var init_imagePromptGen = __esm({
 
 function setupCharacterControls(container) {
   const settings3 = extension_settings28[extensionName];
+  bindCharacterSyncControls();
   loadCharacterPresetList();
   container.find("#character_preset_id").on("change", loadCharacterPreset);
   container.find("#character_new").on("click", createNewCharacterPreset);
@@ -31588,6 +31617,8 @@ function saveCurrentCharacterData(presetId) {
     preset.sendAudio = sendAudioElement.checked;
   }
   const existingPreset = settings3.characterPresets[presetId] || {};
+  preset.promptName = existingPreset.promptName || "";
+  if (existingPreset.wikiNameSource) preset.wikiNameSource = existingPreset.wikiNameSource;
   normalizeCharacterPreset(existingPreset);
   preset.photoMedia = existingPreset.photoMedia || [];
   preset.audioMedia = existingPreset.audioMedia || [];
@@ -33482,27 +33513,27 @@ function processCharacterPrompt(prompt2) {
         );
         if (character) {
           let replacement = "";
-          if (character.characterTraits) {
-            replacement = character.characterTraits;
+          if (character.characterTraits || character.promptName) {
+            replacement = mergePromptTags(character.promptName, character.characterTraits);
           }
           if (upperState !== "hidden") {
             const facialField = isFromBehind ? character.facialFeaturesBack || "" : character.facialFeatures || "";
             if (facialField) replacement += (replacement ? ", " : "") + facialField;
             if (upperState === "sfw") {
               const field = isFromBehind ? character.upperBodySFWBack : character.upperBodySFW;
-              if (field) replacement += (replacement ? ", " : "") + field;
+              if (field) replacement = mergePromptTags(replacement, field);
             } else if (upperState === "nsfw") {
               const field = isFromBehind ? character.upperBodyNSFWBack : character.upperBodyNSFW;
-              if (field) replacement += (replacement ? ", " : "") + field;
+              if (field) replacement = mergePromptTags(replacement, field);
             }
           }
           if (lowerState !== "hidden") {
             if (lowerState === "sfw") {
               const field = isFromBehind ? character.fullBodySFWBack : character.fullBodySFW;
-              if (field) replacement += (replacement ? ", " : "") + field;
+              if (field) replacement = mergePromptTags(replacement, field);
             } else if (lowerState === "nsfw") {
               const field = isFromBehind ? character.fullBodyNSFWBack : character.fullBodyNSFW;
-              if (field) replacement += (replacement ? ", " : "") + field;
+              if (field) replacement = mergePromptTags(replacement, field);
             }
           }
           if (character.negative) {
@@ -33522,14 +33553,14 @@ function processCharacterPrompt(prompt2) {
           allOutfitIds
         );
         if (outfit) {
-          let replacement = "";
+          let replacement = outfit.loraTriggerWords || "";
           if (upperState === "visible") {
             const field = sharedIsFromBehind ? outfit.upperBodyBack : outfit.upperBody;
-            if (field) replacement = field;
+            if (field) replacement = mergePromptTags(replacement, field);
           }
           if (lowerState === "visible") {
             const field = sharedIsFromBehind ? outfit.fullBodyBack : outfit.fullBody;
-            if (field) replacement += (replacement ? ", " : "") + field;
+            if (field) replacement = mergePromptTags(replacement, field);
           }
           console.log("[CharacterPrompt] JSON Outfit replacement result:", replacement);
           return replacement;
@@ -33567,8 +33598,8 @@ function processCharacterPrompt(prompt2) {
         );
         if (character) {
           let replacement = "";
-          if (character.characterTraits) {
-            replacement = character.characterTraits;
+          if (character.characterTraits || character.promptName) {
+            replacement = mergePromptTags(character.promptName, character.characterTraits);
           }
           if (format.upper) {
             const facialField = isFromBehind ? character.facialFeaturesBack || "" : character.facialFeatures || "";
@@ -33576,17 +33607,17 @@ function processCharacterPrompt(prompt2) {
           }
           if (format.upper === "sfw") {
             const field = isFromBehind ? character.upperBodySFWBack : character.upperBodySFW;
-            if (field) replacement += (replacement ? ", " : "") + field;
+            if (field) replacement = mergePromptTags(replacement, field);
           } else if (format.upper === "nsfw") {
             const field = isFromBehind ? character.upperBodyNSFWBack : character.upperBodyNSFW;
-            if (field) replacement += (replacement ? ", " : "") + field;
+            if (field) replacement = mergePromptTags(replacement, field);
           }
           if (format.lower === "sfw") {
             const field = isFromBehind ? character.fullBodySFWBack : character.fullBodySFW;
-            if (field) replacement += (replacement ? ", " : "") + field;
+            if (field) replacement = mergePromptTags(replacement, field);
           } else if (format.lower === "nsfw") {
             const field = isFromBehind ? character.fullBodyNSFWBack : character.fullBodyNSFW;
-            if (field) replacement += (replacement ? ", " : "") + field;
+            if (field) replacement = mergePromptTags(replacement, field);
           }
           if (character.negative) {
             collectNegativeToGlobal(character.negative);
@@ -33614,14 +33645,14 @@ function processCharacterPrompt(prompt2) {
           allOutfitIds
         );
         if (outfit) {
-          let replacement = "";
+          let replacement = outfit.loraTriggerWords || "";
           if (format.hasUpper) {
             const field = sharedIsFromBehind ? outfit.upperBodyBack : outfit.upperBody;
-            if (field) replacement = field;
+            if (field) replacement = mergePromptTags(replacement, field);
           }
           if (format.hasLower) {
             const field = sharedIsFromBehind ? outfit.fullBodyBack : outfit.fullBody;
-            if (field) replacement += (replacement ? ", " : "") + field;
+            if (field) replacement = mergePromptTags(replacement, field);
           }
           console.log("[CharacterPrompt] Outfit replacement result:", replacement);
           return replacement;
@@ -33710,8 +33741,8 @@ function processMultiCharacterPrompt(prompt2) {
                 console.log(`[CharacterPrompt] \u6536\u96C6\u8D1F\u9762\u63D0\u793A\u8BCD:`, character.negative.trim());
               }
               let replacement = "";
-              if (character.characterTraits) {
-                replacement = character.characterTraits;
+              if (character.characterTraits || character.promptName) {
+                replacement = mergePromptTags(character.promptName, character.characterTraits);
               }
               const upperState = jsonData.upperBody.toLowerCase();
               const lowerState = jsonData.lowerBody.toLowerCase();
@@ -33720,19 +33751,19 @@ function processMultiCharacterPrompt(prompt2) {
                 if (facialField) replacement += (replacement ? ", " : "") + facialField;
                 if (upperState === "sfw") {
                   const field = isFromBehind ? character.upperBodySFWBack : character.upperBodySFW;
-                  if (field) replacement += (replacement ? ", " : "") + field;
+                  if (field) replacement = mergePromptTags(replacement, field);
                 } else if (upperState === "nsfw") {
                   const field = isFromBehind ? character.upperBodyNSFWBack : character.upperBodyNSFW;
-                  if (field) replacement += (replacement ? ", " : "") + field;
+                  if (field) replacement = mergePromptTags(replacement, field);
                 }
               }
               if (lowerState !== "hidden") {
                 if (lowerState === "sfw") {
                   const field = isFromBehind ? character.fullBodySFWBack : character.fullBodySFW;
-                  if (field) replacement += (replacement ? ", " : "") + field;
+                  if (field) replacement = mergePromptTags(replacement, field);
                 } else if (lowerState === "nsfw") {
                   const field = isFromBehind ? character.fullBodyNSFWBack : character.fullBodyNSFW;
-                  if (field) replacement += (replacement ? ", " : "") + field;
+                  if (field) replacement = mergePromptTags(replacement, field);
                 }
               }
               return replacement;
@@ -33747,16 +33778,16 @@ function processMultiCharacterPrompt(prompt2) {
               allOutfitIds
             );
             if (outfit) {
-              let replacement = "";
+              let replacement = outfit.loraTriggerWords || "";
               const upperState = jsonData.upperBody.toLowerCase();
               const lowerState = jsonData.lowerBody.toLowerCase();
               if (upperState === "visible") {
                 const field = sharedIsFromBehind ? outfit.upperBodyBack : outfit.upperBody;
-                if (field) replacement = field;
+                if (field) replacement = mergePromptTags(replacement, field);
               }
               if (lowerState === "visible") {
                 const field = sharedIsFromBehind ? outfit.fullBodyBack : outfit.fullBody;
-                if (field) replacement += (replacement ? ", " : "") + field;
+                if (field) replacement = mergePromptTags(replacement, field);
               }
               console.log("[CharacterPrompt] JSON Outfit replacement result (multi-char mode):", replacement);
               return replacement;
@@ -33795,8 +33826,8 @@ function processMultiCharacterPrompt(prompt2) {
                     console.log(`[CharacterPrompt] \u6536\u96C6\u8D1F\u9762\u63D0\u793A\u8BCD:`, character.negative.trim());
                   }
                   let replacement = "";
-                  if (character.characterTraits) {
-                    replacement = character.characterTraits;
+                  if (character.characterTraits || character.promptName) {
+                    replacement = mergePromptTags(character.promptName, character.characterTraits);
                   }
                   if (format.upper) {
                     const facialField = isFromBehind ? character.facialFeaturesBack || "" : character.facialFeatures || "";
@@ -33804,17 +33835,17 @@ function processMultiCharacterPrompt(prompt2) {
                   }
                   if (format.upper === "sfw") {
                     const field = isFromBehind ? character.upperBodySFWBack : character.upperBodySFW;
-                    if (field) replacement += (replacement ? ", " : "") + field;
+                    if (field) replacement = mergePromptTags(replacement, field);
                   } else if (format.upper === "nsfw") {
                     const field = isFromBehind ? character.upperBodyNSFWBack : character.upperBodyNSFW;
-                    if (field) replacement += (replacement ? ", " : "") + field;
+                    if (field) replacement = mergePromptTags(replacement, field);
                   }
                   if (format.lower === "sfw") {
                     const field = isFromBehind ? character.fullBodySFWBack : character.fullBodySFW;
-                    if (field) replacement += (replacement ? ", " : "") + field;
+                    if (field) replacement = mergePromptTags(replacement, field);
                   } else if (format.lower === "nsfw") {
                     const field = isFromBehind ? character.fullBodyNSFWBack : character.fullBodyNSFW;
-                    if (field) replacement += (replacement ? ", " : "") + field;
+                    if (field) replacement = mergePromptTags(replacement, field);
                   }
                   return replacement;
                 }
@@ -33838,14 +33869,14 @@ function processMultiCharacterPrompt(prompt2) {
                   allOutfitIds
                 );
                 if (outfit) {
-                  let replacement = "";
+                  let replacement = outfit.loraTriggerWords || "";
                   if (format.hasUpper) {
                     const field = sharedIsFromBehind ? outfit.upperBodyBack : outfit.upperBody;
-                    if (field) replacement = field;
+                    if (field) replacement = mergePromptTags(replacement, field);
                   }
                   if (format.hasLower) {
                     const field = sharedIsFromBehind ? outfit.fullBodyBack : outfit.fullBody;
-                    if (field) replacement += (replacement ? ", " : "") + field;
+                    if (field) replacement = mergePromptTags(replacement, field);
                   }
                   return replacement;
                 }
@@ -110573,7 +110604,7 @@ var currentPreviewTheme2 = {};
 var generationTabs3 = ["sd", "novelai", "comfyui", "runninghub"];
 var MODE_NAV_TABS = ["sd", "novelai", "comfyui", "runninghub", "banana"];
 var VIDEO_NAV_TABS = ["runninghub_video", "comfyui_video", "video_assets", "video_asset_gen"];
-var tabIds = ["main", "sd", "novelai", "comfyui", "comfyui_video", "runninghub", "runninghub_video", "video_assets", "video_asset_gen", "banana", "llm", "vocabulary", "knowledgeBase", "character", "theme", "fab", "image-cache", "regex", "send_data", "about", "log"];
+var tabIds = ["main", "sd", "novelai", "comfyui", "comfyui_video", "runninghub", "runninghub_video", "video_assets", "video_asset_gen", "banana", "llm", "vocabulary", "knowledgeBase", "wardrobe", "character", "theme", "fab", "image-cache", "regex", "send_data", "about", "log"];
 var FAB_ICON_ACCEPTED_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
 var FAB_ICON_MAX_FILE_SIZE = 5 * 1024 * 1024;
 var FAB_ICON_MAX_DIMENSION = 512;
@@ -110780,6 +110811,7 @@ async function loadAllTabsContent(container) {
       return `<div id="st-chatu8-tab-${tabId}" class="st-chatu8-tab-content" data-tab-id="${tabId}">${html}</div>`;
     }).join("");
     container.innerHTML = finalHtml;
+    mountWardrobe();
     try {
       initHelpTipInteractions();
       injectHelpTips(container);
@@ -113015,6 +113047,75 @@ async function main() {
     saveSettingsDebounced72();
   }
   extension_settings116[extensionName] = mergedSettings;
+  initializeWardrobe({
+    getSettings: () => extension_settings116[extensionName], getContext,
+    events: eventSource, eventTypes: event_types, save: saveSettingsDebounced72,
+    notify: (message, success) => success ? toastr.success(message) : toastr.warning(message),
+    getImage: async id => { init_configDatabase(); return getConfigImage(id); },
+    saveImage: async data => {
+      init_configDatabase();
+      if (typeof data === "string" && /^(?:https?:\/\/|\/)/.test(data)) {
+        const response = await fetch(data, { signal: AbortSignal.timeout(30000) });
+        if (!response.ok) throw new Error("无法读取封面图片，请上传图片替代。");
+        const blob = await response.blob();
+        if (!blob.type.startsWith("image/")) throw new Error("返回的文件不是图片。");
+        return saveConfigImage(blob, { mimeType: blob.type });
+      }
+      return saveConfigImage(data);
+    },
+    refresh: () => {
+      loadCharacterPresetList(); loadOutfitPresetList();
+      loadCharacterSelector(); loadCharacterCommonSelector(); loadCharacterCommonPresetList(); loadCharacterCommonPreset();
+      loadOutfitEnableSelector(); loadOutfitEnablePresetList(); loadOutfitEnablePreset();
+      loadCharacterPresetData(extension_settings116[extensionName].characterPresetId);
+      loadOutfitPresetData(extension_settings116[extensionName].outfitPresetId);
+    },
+    network: { getHeaders: () => getRequestHeaders(window.token), parseHeaders: parseCustomHeaders, parseBody: parseCustomBody, includeHeaders: buildProxyIncludeHeaders },
+    syncRoles: () => openCharacterSync(),
+    legacy: (kind, key, action) => {
+      document.querySelector('.st-chatu8-nav-link[data-tab="character"]')?.click();
+      document.querySelector(`.st-chatu8-sub-nav-link[data-sub-tab="${kind === 'outfit' ? 'ch-sub-tab-outfit-settings' : 'ch-sub-tab-character-settings'}"]`)?.click();
+      const current = extension_settings116[extensionName];
+      if (key) { if (kind === 'outfit') { current.outfitPresetId=key; loadOutfitPresetList(); loadOutfitPresetData(key); } else { current.characterPresetId=key; loadCharacterPresetList(); loadCharacterPresetData(key); } saveSettingsDebounced72(); }
+      if (action === 'sync') document.getElementById('character_sync')?.click();
+      if (action === 'vision') document.getElementById('outfit_photo_upload')?.scrollIntoView({block:'center'});
+    }
+  });
+  initializeCharacterSync({
+    getSettings: () => extension_settings116[extensionName],
+    getContext, getWorldInfo: () => world_info,
+    events: eventSource, eventTypes: event_types,
+    save: saveSettingsDebounced72,
+    hasUnsaved: () => {
+      const preset = extension_settings116[extensionName].characterPresets?.[extension_settings116[extensionName].characterPresetId];
+      if (!preset) return false;
+      return CHARACTER_FIELDS.some(field => {
+        const input = document.getElementById(`char_${field}`);
+        return input && input.value !== (preset[field] || "");
+      }) || (() => {
+        const input = document.getElementById("char_outfit_list");
+        return input && JSON.stringify(input.value.split("\n").map(value => value.trim()).filter(Boolean)) !== JSON.stringify(preset.outfits || []);
+      })() || (() => {
+        const settings = extension_settings116[extensionName];
+        const input = document.getElementById("character_common_list");
+        const current = settings.characterCommonPresets?.[settings.characterCommonPresetId];
+        return input && current && JSON.stringify(input.value.split("\n").map(value => value.trim()).filter(Boolean)) !== JSON.stringify(current.characters || []);
+      })();
+    },
+    refresh: () => {
+      loadCharacterPresetList();
+      loadCharacterPresetData(extension_settings116[extensionName].characterPresetId);
+      loadCharacterSelector(); loadCharacterCommonSelector();
+      loadCharacterCommonPresetList(); loadCharacterCommonPreset();
+      mountWardrobe();
+    },
+    notify: (message, success) => success ? toastr.success(message) : toastr.warning(message),
+    network: {
+      getHeaders: () => getRequestHeaders(window.token),
+      parseHeaders: parseCustomHeaders, parseBody: parseCustomBody,
+      includeHeaders: buildProxyIncludeHeaders
+    }
+  });
   ensureInjectionTemplatesInit();
   installGlobalErrorHandler();
   initImageGenStatsListener();

@@ -15,6 +15,11 @@
         <!-- 预设管理 -->
         <div class="st-chatu8-settings-section">
             <h3>角色预设</h3>
+            <div class="st-chatu8-field-col">
+                <button type="button" id="character_sync" class="st-chatu8-btn st-chatu8-btn-primary">同步 · 按当前角色卡</button>
+                <label class="st-chatu8-checkbox-label"><input type="checkbox" id="character_sync_auto">聊天回复后自动检测角色（先预览确认）</label>
+                <p>角色卡优先，世界书补充，正文检测出场人物。同名角色共用预设；首次请点同步选择 API 和模型。</p>
+            </div>
             <div class="st-chatu8-field">
                 <label for="character_preset_id">当前预设</label>
                 <div class="st-chatu8-profile-controls">
@@ -310,6 +315,10 @@
                 <button class="st-chatu8-btn" id="outfit_photo_upload" style="margin-top: 10px;">
                     <i class="fa-solid fa-upload"></i> 上传照片
                 </button>
+                <button type="button" class="st-chatu8-btn" id="outfit_photo_reverse" style="margin-top: 10px;">
+                    <i class="fa-solid fa-eye"></i> 从图片反推
+                </button>
+                <p style="font-size: 0.85em; opacity: 0.8; text-align: center;">直接识别当前服装照片，可选择 API 和模型；预览确认后保存服装字段。</p>
                 <div class="st-chatu8-field" style="margin-top: 10px; display: flex; align-items: center; gap: 10px;">
                     <label for="outfit_send_photo" class="st-chatu8-checkbox-label" style="margin: 0; display: flex; align-items: center; gap: 8px; cursor: pointer;">
                         <input type="checkbox" id="outfit_send_photo" class="st-chatu8-checkbox">
