@@ -1,5 +1,17 @@
 // Wardrobe data and scene rules. Keep legacy presets as the single source of prompt fields.
-export const newId = () => globalThis.crypto.randomUUID();
+let fallbackIdCounter = 0;
+export function newId() {
+  const crypto = globalThis.crypto;
+  if (typeof crypto?.randomUUID === 'function') return crypto.randomUUID();
+  if (typeof crypto?.getRandomValues === 'function') {
+    const bytes = crypto.getRandomValues(new Uint8Array(16));
+    bytes[6] = (bytes[6] & 15) | 64; bytes[8] = (bytes[8] & 63) | 128;
+    const hex = [...bytes].map(b => b.toString(16).padStart(2, '0')).join('');
+    return `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`;
+  }
+  // Library identifiers only, never credentials or security tokens.
+  return `local-${Date.now().toString(36)}-${(++fallbackIdCounter).toString(36)}-${Math.random().toString(36).slice(2)}`;
+}
 export const names = (p, key = '') => [...new Set([key, p?.nameCN, p?.nameEN].filter(Boolean).flatMap(x => x.split('|')).map(x => x.trim()).filter(Boolean))];
 const signature = p => JSON.stringify(Object.entries(p || {}).filter(([k]) => !['nameCN','nameEN','outfits'].includes(k)).sort(([a],[b]) => a.localeCompare(b)));
 export function library(settings) {

@@ -78,3 +78,7 @@ Civit 自动筛选补充：默认读取后调用所选 LLM 识别服装并排除
 ### 安装目录兼容修复（2026-10-09）
 
 资源路径从 index.js 的 import.meta.url 获取，支持 1008-stchu 等安装目录；设置数据仍使用 st-chatu8 命名空间。修复手机菜单可见但设置 HTML 无法加载的问题。
+
+### 手机 HTTP ID 兼容（2026-10-09）
+
+衣橱 ID 优先 randomUUID，不支持时使用 getRandomValues 生成 UUID，完全缺少 crypto 时使用时间 / 序号 / 随机后缀。修复手机 HTTP 环境保存人物时 randomUUID is not a function。新增 wardrobe-id.test.mjs 覆盖三种环境；七组测试通过。
