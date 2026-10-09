@@ -1,3 +1,4 @@
+import { CHARACTER_DRAFT_FIELDS, buildCharacterDraftMessages, parseCharacterDraft } from './character-draft.js';
 import { mergePromptTags, paginateItems, deletionImpact, deleteLibraryItem, restoreLibraryItem, library, roleCombinations, bindCombination, unbindCombination, names, newId, scene, latestBody, validSource, resolveWear, applyWear, matchOutfits, selectedOutfitKeys, saveCover, parseCivitLink, civitGroups, importCivitGroups, chatKey } from './wardrobe-store.js';
 import { attachWikiLookup } from './role-wiki.js';
 import { openOutfitVision, requestOutfitVision } from './outfit-vision.js';
@@ -208,7 +209,7 @@ function moreMenu(label,actions){
 function roleEnabled(key){const s=settings();return [s.characterEnablePresets?.[s.characterEnablePresetId]?.characters,s.characterCommonPresets?.[s.characterCommonPresetId]?.characters].some(list=>(list||[]).some(x=>(typeof x==='string'?x:x.characterPresetName)===key));}
 function openFlow(roleId=chosenRole){const w=library(settings());chosenRole=roleId;chosenCombo=resolveWear(settings(),deps.getContext(),roleId)?.comboId||'';wizardStep=chosenCombo?3:1;page='wizard';filter='';(w.ui ||= {}).lastRoleId=chosenRole;deps.save();render();}
 function addRole(){const d=dialog('添加角色');d.append(el('p','手动建立角色，或从当前角色卡和世界书同步。'));
- d.append(button('同步当前角色卡',()=>{d.close();return deps.syncRoles?deps.syncRoles():legacy('character',null,'sync');}),button('手动新增角色',()=>{d.close();edit('roles');}));}
+ d.append(button('同步当前角色卡',()=>{d.close();return deps.syncRoles?deps.syncRoles():legacy('character',null,'sync');}),button('文字创建虚构角色',()=>{d.close();return createFictionalRole();}),button('手动新增角色',()=>{d.close();edit('roles');}));}
 function addOutfit(roleId=null){const d=dialog(roleId?'为这个角色添加服装':'添加服装');d.append(el('p','选择一种来源，保存后回到服装选择。'));
  if(roleId)d.append(button('选择已有服装',()=>{d.close();addExistingToRole(roleId);}));
  d.append(button('手动新增',()=>{d.close();edit('outfits',null,roleId);}),button('图片反推',()=>{d.close();uploadVisionOutfit(roleId);}),button('从 Civit 导入',()=>{d.close();return civit(roleId);}));
@@ -284,4 +285,25 @@ function uploadVisionOutfit(roleId){
    (s.outfitPresets ||= {})[key]=structuredClone(next);library(s);const outfit=Object.values(w.outfits).find(o=>o.key===key),combo=Object.values(w.combinations).find(c=>c.outfitId===outfit.id);if(roleId){bindCombination(s,roleId,combo.id);chosenRole=roleId;chosenCombo=combo.id;wizardStep=2;}deps.save();
  },refresh:()=>{deps.refresh?.();render();}});
  }catch(e){deps.notify(e.message);}finally{input.remove();}};input.click();
+}
+
+async function createFictionalRole(){
+ const s=settings(),d=dialog('文字创建虚构角色');d.append(el('p','输入人物设想，LLM 会补充外貌并生成英文生图提示词；生成结果是创作草稿，可编辑后保存。服装在下一步单独配置。'));
+ const concept=field(d,'人物设想','','textarea');concept.placeholder='例如：原创人物星野瑶，绿色眼睛，长睫毛，身材纤细，性格内向但好胜；请补充发型和其他外貌细节。';
+ const controls=el('section');controls.controller=d.controller;d.append(controls);const getModel=await modelControls(controls),area=el('section');d.append(area);let draft=null,revision=0;
+ concept.oninput=()=>{revision++;draft=null;save.disabled=true;area.replaceChildren();};
+ const generate=button('丰富人物并生成提示词',async()=>{
+   const messages=buildCharacterDraftMessages(concept.value),ticket=revision,{profile,model}=getModel();
+   const result=await requestOutfitVision({...deps.network,profile,model,messages,signal:AbortSignal.any([d.controller.signal,AbortSignal.timeout(180000)]),parseResult:parseCharacterDraft});
+   if(!d.isConnected||ticket!==revision)return;draft={};area.replaceChildren();area.append(el('h4','创作结果 · 可编辑'),el('p',result.notes||'请检查模型补充的外貌细节。'));
+   for(const [key,label]of CHARACTER_DRAFT_FIELDS)draft[key]=field(area,label,result[key],key.startsWith('name')||key==='promptName'?'input':'textarea');save.disabled=false;
+ });
+ const enableLine=el('label','','wardrobe-checkbox'),enable=el('input');enable.type='checkbox';enable.checked=true;enableLine.append(enable,el('span','同时启用这个角色参与生图'));
+ const save=button('保存角色并配置服装',()=>{
+   if(!draft)throw Error('请先生成创作结果。');if(settings()!==s)throw Error('配置已变化，请重新打开。');
+   const next=parseCharacterDraft(JSON.stringify(Object.fromEntries(CHARACTER_DRAFT_FIELDS.map(([key])=>[key,draft[key].value])))),key=next.nameCN.split('|')[0].trim();
+   if(!key)throw Error('请填写人物名称。');if(s.characterPresets?.[key])throw Error('同名角色已存在，请修改名称。');
+   delete next.notes;next.outfits=[];next.creationSource={kind:'fictional-text',concept:concept.value.trim()};(s.characterPresets ||= {})[key]=next;
+   const w=library(s);chosenRole=Object.values(w.roles).find(r=>r.key===key).id;chosenCombo='';wizardStep=2;page='wizard';wearFilter='';wearPage=1;(w.ui ||= {}).lastRoleId=chosenRole;if(enable.checked)enableRole(key,false);persist();d.close();
+ });save.disabled=true;d.append(generate,enableLine,save);
 }
