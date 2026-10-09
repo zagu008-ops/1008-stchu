@@ -2324,7 +2324,7 @@ var init_config = __esm({
     init_themePresets();
     init_defaultToolCallConfig();
     extensionName = "st-chatu8";
-    extensionFolderPath = `scripts/extensions/third-party/${extensionName}`;
+    extensionFolderPath = new URL(".", import.meta.url).pathname.replace(/\/$/, "");
     EventType = {
       GENERATE_IMAGE_REQUEST: "generate-image-request",
       GENERATE_IMAGE_RESPONSE: "generate-image-response"
