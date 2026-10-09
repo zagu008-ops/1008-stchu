@@ -1,5 +1,10 @@
 // Character identity resolution and LoRA transport; no LLM or network calls.
-const normal = value => String(value || '').normalize('NFKC').toLowerCase().replace(/[_-]/g, ' ').replace(/\s+/g, ' ').trim();
+const normal = value => {
+  let text = String(value || '').normalize('NFKC').trim();
+  const weighted = text.match(/^\(([^()]+?)(?::[-+]?(?:\d*\.)?\d+)?\)$/);
+  if (weighted) text = weighted[1];
+  return text.toLowerCase().replace(/[_-]/g, ' ').replace(/\s+/g, ' ').trim();
+};
 const aliases = (key, role) => [...new Set([key, ...[role.nameCN, role.nameEN, role.promptName].flatMap(x => String(x || '').split('|'))].filter(x => x.trim()))];
 const entryKey = entry => typeof entry === 'string' ? entry : entry?.characterPresetName;
 export function normalizeLoraBinding(binding) {

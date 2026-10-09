@@ -7,6 +7,7 @@ const settings={characterPresets:{snow:{nameCN:'司波深雪|深雪',nameEN:'shi
 const before=structuredClone(settings);
 const selected=prepareCharacterTags('1girl, shiba_miyuki, blonde hair, red eyes, smiling, holding book, library, 832x1216',settings,'海梦和深雪');
 assert.deepEqual(selected.characters,['snow']);assert.equal(selected.bindings[0].clipWeight,0);assert(!selected.tag.includes('blonde hair'));assert(selected.tag.includes('holding book'));assert(selected.tag.includes('832x1216'));
+const weighted=prepareCharacterTags('1girl, (shiba_miyuki:1.2), (purple_eyes:1.1), (black_hair:1.2), smiling',settings,'深雪和海梦');assert.deepEqual(weighted.characters,['snow']);assert(!weighted.tag.includes('purple_eyes'));assert(!weighted.tag.includes('(black_hair'));
 const code=fs.readFileSync(new URL('../index.js',import.meta.url),'utf8');
 const context=vm.createContext({console:{log(){}},extensionName:'test',extension_settings29:{test:settings},window:{},mergePromptTags});
 vm.runInContext(code.slice(code.indexOf('function normalizeName('),code.indexOf('var init_characterprompt =')),context);
