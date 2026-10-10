@@ -47378,7 +47378,10 @@ async function generateComfyUIImage({ prompt: link, width: Xwidth, height: Xheig
     sopPlan.positive=[sopPlan.scenePrompt,...sopPlan.characters.map(p=>p.prompt)].filter(Boolean).join(', ');
     sopPlan.negative=[sopPlan.sceneNegative,...sopPlan.characters.map(p=>p.negative)].filter(Boolean).join(', ');
   }
-  for (const warning of sopPlan.warnings) { addLog(`[生图 SOP] ${warning}`); toastr.warning(warning); }
+  for (const warning of sopPlan.warnings) {
+    addLog(`[生图 SOP] ${warning}`);
+    if (!/^(?:本次使用普通合并生成|多人图使用|本次角色 LoRA 全局作用)/.test(warning)) toastr.warning(warning);
+  }
   sopPlan.scenePrompt = await zhengmian("", sopPlan.scenePrompt, "", generationSettings.AQT_comfyui, insertions);
   sopPlan.sceneNegative = await fumian(sopPlan.sceneNegative, generationSettings.UCP_comfyui);
   if (extraNegativePrompt?.trim()) sopPlan.sceneNegative += ", " + extraNegativePrompt.trim();
