@@ -263,3 +263,25 @@ export function restoreLibraryItem(settings,trashId) {
 
 // Activation tags keep source spelling; merge only exact duplicate tags.
 export function mergePromptTags(...parts){return [...new Set(parts.filter(Boolean).flatMap(p=>String(p).split(',')).map(x=>x.trim()).filter(Boolean))].join(', ');}
+
+// The wardrobe and legacy editor share the current character enable preset.
+export function enabledRoleLists(settings) {
+  return [['启用', settings.characterEnablePresetId, settings.characterEnablePresets], ['通用', settings.characterCommonPresetId, settings.characterCommonPresets]].map(([kind,id,presets]) => ({
+    kind, id: id || '', entries: [...new Set((presets?.[id]?.characters || []).map(entry => typeof entry === 'string' ? entry : entry?.characterPresetName).filter(Boolean))].map(key => ({key, role:settings.characterPresets?.[key] || null}))
+  }));
+}
+export function setRoleEnabled(settings, key, enabled) {
+  if (!settings.characterPresets?.[key]) throw Error('角色资料不存在，请重新选择。');
+  let id = settings.characterEnablePresetId;
+  const presets = settings.characterEnablePresets ||= {};
+  if (!id || !presets[id]) {
+    id = '衣橱启用列表';
+    let suffix = 1; while (presets[id]) id = '衣橱启用列表 ' + suffix++;
+    presets[id] = {characters:[],mediaSchemaVersion:2}; settings.characterEnablePresetId = id;
+  }
+  const list = presets[id].characters ||= [];
+  const entryKey = entry => typeof entry === 'string' ? entry : entry?.characterPresetName;
+  if (enabled && !list.some(entry => entryKey(entry) === key)) list.push({characterPresetName:key,imageFileId:null,audioFileId:null,imageDescription:'',audioDescription:''});
+  if (!enabled) presets[id].characters = list.filter(entry => entryKey(entry) !== key);
+  return id;
+}

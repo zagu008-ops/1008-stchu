@@ -1,0 +1,13 @@
+import assert from 'node:assert/strict';
+import {enabledRoleLists,setRoleEnabled} from '../wardrobe-store.js';
+const s={characterPresets:{star:{nameCN:'星野遥|星野瑶'},snow:{nameCN:'深雪'}},characterEnablePresetId:'cast',characterEnablePresets:{cast:{characters:[{characterPresetName:'snow',imageFileId:'keep'},'missing']}},characterCommonPresetId:'common',characterCommonPresets:{common:{characters:['star']}}};
+assert.equal(enabledRoleLists(s)[1].entries[0].key,'star');
+assert.equal(enabledRoleLists(s)[0].entries[1].role,null);
+setRoleEnabled(s,'star',true);setRoleEnabled(s,'star',true);
+assert.equal(s.characterEnablePresets.cast.characters.length,3);
+assert.equal(s.characterEnablePresets.cast.characters[0].imageFileId,'keep');
+setRoleEnabled(s,'star',false);assert.equal(s.characterEnablePresets.cast.characters.length,2);
+assert.equal(enabledRoleLists(s)[1].entries[0].key,'star','common list remains enabled');
+assert.throws(()=>setRoleEnabled(s,'absent',true));
+const fresh={characterPresets:{star:{}}};setRoleEnabled(fresh,'star',true);assert.equal(enabledRoleLists(fresh)[0].entries[0].key,'star');
+console.log('PASS: wardrobe enable, existing metadata, deduplication, common visibility, missing records and new list.');

@@ -264,3 +264,8 @@
 @media(max-width:600px){.comfy-address-actions .st-chatu8-btn{flex:1}#ch-tab-comfyui .comfy-address-field>.st-chatu8-input-group{flex-wrap:wrap}#ch-tab-comfyui .comfy-address-field #comfyuiUrl{flex-basis:100%}}
 .wardrobe-dialog .wardrobe-lora-enabled {flex-direction:row;align-items:center;gap:10px;color:#eee}
 .wardrobe-dialog .wardrobe-lora-enabled input[type=checkbox] {appearance:auto!important;box-sizing:border-box;width:18px!important;height:18px!important;min-width:18px!important;min-height:18px!important;flex:0 0 18px;margin:0!important;padding:0!important;accent-color:#ffad3d;cursor:pointer}
+
+#wardrobe-root .wardrobe-enabled-roles { margin-top:16px; padding:14px; border:1px solid #ffffff25; border-radius:10px; min-width:0; }
+#wardrobe-root .wardrobe-enabled-roles summary { cursor:pointer; font-weight:600; }
+#wardrobe-root .wardrobe-enabled-roles li { margin:8px 0; overflow-wrap:anywhere; }
+#wardrobe-root .wardrobe-enabled-roles ul { padding-left:20px; }

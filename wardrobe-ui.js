@@ -1,5 +1,5 @@
 import { CHARACTER_DRAFT_FIELDS, buildCharacterDraftMessages, parseCharacterDraft } from './character-draft.js';
-import { mergePromptTags, paginateItems, deletionImpact, deleteLibraryItem, restoreLibraryItem, library, roleCombinations, bindCombination, unbindCombination, names, newId, scene, latestBody, validSource, resolveWear, applyWear, matchOutfits, selectedOutfitKeys, saveCover, parseCivitLink, civitGroups, importCivitGroups, chatKey } from './wardrobe-store.js';
+import { enabledRoleLists, setRoleEnabled, mergePromptTags, paginateItems, deletionImpact, deleteLibraryItem, restoreLibraryItem, library, roleCombinations, bindCombination, unbindCombination, names, newId, scene, latestBody, validSource, resolveWear, applyWear, matchOutfits, selectedOutfitKeys, saveCover, parseCivitLink, civitGroups, importCivitGroups, chatKey } from './wardrobe-store.js';
 import { attachWikiLookup } from './role-wiki.js';
 import { mountCharacterLoraEditor } from './character-lora-ui.js';
 import { normalizeLoraBinding } from './character-lora.js';
@@ -253,7 +253,26 @@ function renderWizard(token){
    panel.append(el('h4','选择要配置的角色'));
    const picker=el('div','','wardrobe-toolbar wardrobe-role-picker');panel.append(picker);const role=field(picker,'选择角色','','select');picker.append(button('添加角色',()=>addRole()));role.add(new Option('请选择角色',''));for(const item of Object.values(w.roles))if(s.characterPresets?.[item.key])role.add(new Option((s.characterPresets[item.key].nameCN||item.key).split('|')[0],item.id));role.value=chosenRole;
    role.onchange=()=>{chosenRole=role.value;chosenCombo=resolveWear(s,ctx,chosenRole)?.comboId||'';wizardStep=chosenCombo?3:1;(w.ui ||= {}).lastRoleId=chosenRole;deps.save();render();};
-   if(p){const info=el('div','','wardrobe-person-summary'),thumb=el('div','◈','wardrobe-thumb');info.append(thumb);image(thumb,itemPhoto(p),token);const text=el('div');text.append(el('h4',(p.nameCN||r.key).split('|')[0]),el('p',`识别名称：${p.nameCN||r.key}${p.nameEN?' / '+p.nameEN:''}`),el('p',`生图名称：${p.promptName||'尚未填写，可在角色资料中查询 Wiki 或手填'}`));text.append(button('编辑角色资料',()=>edit('roles',r.id)));info.append(text);panel.append(info);}
+   if(p){const info=el('div','','wardrobe-person-summary'),thumb=el('div','◈','wardrobe-thumb');info.append(thumb);image(thumb,itemPhoto(p),token);const text=el('div');text.append(el('h4',(p.nameCN||r.key).split('|')[0]),el('p',`识别名称：${p.nameCN||r.key}${p.nameEN?' / '+p.nameEN:''}`),el('p',`生图名称：${p.promptName||'尚未填写，可在角色资料中查询 Wiki 或手填'}`));text.append(button('编辑角色资料',()=>edit('roles',r.id)));
+     const lists=enabledRoleLists(s),active=lists[0].entries.some(entry=>entry.key===r.key),common=lists[1].entries.some(entry=>entry.key===r.key);
+     text.append(el('p',`角色识别：${active?'已加入启用列表':common?'已加入通用列表':'尚未启用'}`));
+     text.append(button(active?'取消角色启用':'启用角色',()=>{setRoleEnabled(s,r.key,!active);persist();}));info.append(text);panel.append(info);}
+   const lists=enabledRoleLists(s),enabled=el('details','','wardrobe-enabled-roles');enabled.open=true;
+   enabled.append(el('summary',`已启用角色列表（${new Set(lists.flatMap(list=>list.entries.filter(entry=>entry.role).map(entry=>entry.key))).size}）`));
+   enabled.append(el('p','这里与旧角色启用管理同步保存；启用列表和通用列表中的角色均可参与姓名 / 别名识别。'));
+   for(const list of lists){
+     enabled.append(el('h4',`${list.kind}列表：${list.id||'未选择'}`));
+     if(!list.entries.length)enabled.append(el('p','暂无角色'));
+     const items=el('ul');for(const entry of list.entries){const row=el('li');
+       if(!entry.role)row.append(el('span',`${entry.key}（资料不存在，不能匹配）`));
+       else {const id=Object.values(w.roles).find(item=>item.key===entry.key)?.id;
+         const name=(entry.role.nameCN||entry.key).split('|')[0];
+         if(id)row.append(button(name,()=>{chosenRole=id;chosenCombo=resolveWear(s,ctx,id)?.comboId||'';wizardStep=1;(w.ui ||= {}).lastRoleId=id;deps.save();render();}));else row.append(el('span',name));
+         row.append(el('small',` 识别名称：${names(entry.role,entry.key).join(' / ')}`));
+       }items.append(row);
+     }enabled.append(items);
+   }panel.append(enabled);
+
  }else if(wizardStep===2){
    panel.append(el('h4',`给 ${(p.nameCN||r.key).split('|')[0]} 选择服装`),el('p','从该角色的服装中选择完整套装；新增服装会补充到这个角色。'));
    const tools=el('div','','wardrobe-toolbar');tools.append(button('添加服装',()=>addOutfit(chosenRole)),moreMenu('更多服装操作',[
