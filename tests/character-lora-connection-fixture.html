@@ -1,0 +1,15 @@
+<!doctype html><meta charset="utf-8"><title>LoRA 连接跳转验证</title><link rel="stylesheet" href="../style.css">
+<style>body{font:16px system-ui;padding:24px;background:#162a3b;color:#eee}dialog{background:#162a3b;color:#eee;width:720px;max-width:85vw}input{padding:8px}button{padding:12px;margin:6px}fieldset{padding:16px}label{display:block;margin:8px}</style>
+<nav><button class="st-chatu8-nav-link active" data-tab="wardrobe">角色资料</button><button class="st-chatu8-nav-link" data-tab="comfyui">ComfyUI</button></nav>
+<section id="connection" class="st-chatu8-settings-section" hidden><h2>ComfyUI 设置</h2><label>API 地址 <input id="comfyuiUrl" placeholder="http://127.0.0.1:8188"></label><button id="testComfyui">连接刷新数据</button></section>
+<dialog><h2>角色资料</h2><label>中文名称 <input id="draftName" value="未保存角色草稿"></label><main id="editor"></main></dialog><p id="result"></p>
+<script type="module">
+import {mountComfyAddressHistory} from '../comfy-address-history.js';
+const config={};mountComfyAddressHistory(document.querySelector('#comfyuiUrl'),()=>config,()=>{});
+import {mountCharacterLoraEditor} from '../character-lora-ui.js';
+let files=[];
+for(const link of document.querySelectorAll('nav button')) link.onclick=()=>{document.querySelectorAll('nav button').forEach(x=>x.classList.toggle('active',x===link));document.querySelector('#connection').hidden=link.dataset.tab!=='comfyui';};
+document.querySelector('#testComfyui').onclick=()=>{files=['characters/example.safetensors'];document.querySelector('#result').textContent='模拟连接成功';};
+const dialog=document.querySelector('dialog');dialog.addEventListener('close',()=>dialog.remove());
+mountCharacterLoraEditor(document.querySelector('#editor'),{loraBindings:[]},async()=>{if(!new URLSearchParams(location.search).has('live'))return files;const {token}=await(await fetch('/csrf-token')).json();const response=await fetch('/api/sd/comfy/loras',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':token},body:JSON.stringify({url:'http://127.0.0.1:8188'})});if(!response.ok)throw Error('HTTP '+response.status);return response.json();});dialog.classList.add('wardrobe-dialog');dialog.showModal();
+</script>

@@ -1,3 +1,19 @@
+export function comfyAddressKey(value) {
+  try { const url=new URL(String(value||'').trim()); return url.href.replace(/\/+$/, ''); } catch { return String(value||'').trim().replace(/\/+$/, ''); }
+}
+export function migrateAddressLoras(settings) {
+  const key=comfyAddressKey(settings.comfyuiUrl);
+  if(!key)return;
+  for(const role of Object.values(settings.characterPresets||{})) {
+    if(!role.loraBindingsByAddress) {
+      role.loraBindingsByAddress={[key]:(role.loraBindings||[]).map(x=>({...x}))};
+      role.loraBindings=[];
+    }
+  }
+}
+export function addressLoras(role, address) {
+  return role.loraBindingsByAddress ? role.loraBindingsByAddress[comfyAddressKey(address)]||[] : role.loraBindings||[];
+}
 // Character identity resolution and LoRA transport; no LLM or network calls.
 const normal = value => {
   let text = String(value || '').normalize('NFKC').trim();
@@ -68,7 +84,7 @@ export function prepareCharacterTags(tag, settings, body = '') {
   const people = Math.max(countFor(/^girl/)+countFor(/^boy/),countFor(/^(people|person)/));
   if (!text.includes('Scene Composition') && matched.size && (people ? matched.size >= people : matched.size === 1)) text = cleanAppearance(text);
   const bindings = new Map();
-  for (const {role} of matched.values()) for (const raw of role.loraBindings || []) {
+  for (const {role} of matched.values()) for (const raw of addressLoras(role, settings.comfyuiUrl)) {
     const binding = normalizeLoraBinding(raw); if (!binding.enabled) continue;
     const key = binding.file.toLowerCase(), previous = bindings.get(key);
     if (previous && (previous.modelWeight !== binding.modelWeight || previous.clipWeight !== binding.clipWeight)) throw Error(`角色绑定的同一 LoRA 权重冲突：${binding.file}`);

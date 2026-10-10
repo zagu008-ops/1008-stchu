@@ -97,9 +97,11 @@ export function resolveWear(settings, ctx, roleId) {
 }
 export function applyWear(settings, ctx, roleId, comboId, manual = false, source = latestBody(ctx)) {
   const w = library(settings);
-  if (!ctx.chatId && !ctx.chatMetadata?.chat_id) throw new Error('请先打开并保存一个聊天。');
+  const hasChat=!!(ctx.chatId || ctx.chatMetadata?.chat_id);
+  if (!hasChat && !manual) throw new Error('正文自适应需要先打开并保存聊天。');
   if (!w.roles[roleId] || !w.combinations[comboId]) throw new Error('角色或组合已删除，请重新选择。');
   if (!w.roles[roleId].combinationIds.includes(comboId)) throw new Error('先把这套服装添加到该角色的服装配置。');
+  if(!hasChat){w.roles[roleId].defaultComboId=comboId;return;}
   scene(settings,ctx).roles[roleId] = { comboId, locked: manual, source: { index: source.index, stamp: source.stamp }, confirmed: true };
 }
 export function selectedOutfitKeys(settings, ctx) {
@@ -159,9 +161,22 @@ export function parseCivitLink(input) {
   if (!id) throw new Error('链接中没有模型 ID。');
   return { id:Number(id), versionId: Number(url.searchParams.get('modelVersionId')) || null };
 }
+export function summarizeCivitOutfit(raw, index=0) {
+  const tags=String(raw).toLowerCase().replace(/_/g,' ').split(',').map(x=>x.trim());
+  const types=[['school uniform','校服'],['sailor uniform','水手服'],['maid dress','女仆裙'],['pleated skirt','百褶裙'],['pencil skirt','包臀裙'],['sweater','毛衣'],['cardigan','开衫'],['hoodie','连帽衫'],['blouse','衬衫'],['shirt','衬衫'],['dress','连衣裙'],['skirt','裙子'],['jacket','夹克'],['coat','外套'],['jeans','牛仔裤'],['pants','长裤'],['shorts','短裤'],['bikini','比基尼'],['swimsuit','泳装'],['kimono','和服'],['yukata','浴衣'],['leotard','连体衣'],['armor','铠甲']];
+  const colors=[['black','黑色'],['white','白色'],['blue','蓝色'],['red','红色'],['pink','粉色'],['purple','紫色'],['green','绿色'],['yellow','黄色'],['brown','棕色'],['gray','灰色'],['grey','灰色'],['beige','米色']];
+  const parts=[];
+  for(const tag of tags){
+    if(/\b(hair|eyes|background)\b/.test(tag))continue;
+    const type=types.find(([word])=>new RegExp('\\b'+word+'\\b').test(tag));if(!type)continue;
+    const color=colors.find(([word])=>new RegExp('\\b'+word+'\\b').test(tag));
+    const name=(color?.[1]||'')+type[1];if(!parts.includes(name))parts.push(name);
+  }
+  return parts.length?parts.slice(0,2).join('＋'):'未识别到服装';
+}
 export function civitGroups(model, version) {
   if (!model.id || !version.id || !Array.isArray(version.trainedWords)) throw new Error('元数据缺少模型、版本或 trainedWords。');
-  return version.trainedWords.filter(x => typeof x === 'string' && x.trim()).map(raw => ({ raw, name:raw.split(',')[0].trim(), description:raw, activation:raw, appearance:'', source: { modelId:model.id, versionId:version.id, modelName:model.name, versionName:version.name, baseModel:version.baseModel, type:model.type, files:(version.files || []).map(f=>({name:f.name,hashes:f.hashes})), raw, url:`https://civitai.com/models/${model.id}?modelVersionId=${version.id}`, status:'仅导入资料，LoRA 未加载' } }));
+  return version.trainedWords.filter(x => typeof x === 'string' && x.trim()).map((raw,index) => ({ raw, name:summarizeCivitOutfit(raw,index), description:raw, activation:raw, appearance:'', source: { modelId:model.id, versionId:version.id, modelName:model.name, versionName:version.name, baseModel:version.baseModel, type:model.type, files:(version.files || []).map(f=>({name:f.name,hashes:f.hashes})), raw, url:`https://civitai.com/models/${model.id}?modelVersionId=${version.id}`, status:'仅导入资料，LoRA 未加载' } }));
 }
 export function importCivitGroups(settings, groups) {
   const w = library(settings); const added = [];

@@ -1,3 +1,5 @@
+import { migrateAddressLoras } from './character-lora.js';
+import { mountComfyAddressHistory } from './comfy-address-history.js';
 /**
  * ====================================================
  * st-chatu8 (智绘姬) - SillyTavern 文生图扩展
@@ -31620,6 +31622,7 @@ function saveCurrentCharacterData(presetId) {
   const existingPreset = settings3.characterPresets[presetId] || {};
   preset.promptName = existingPreset.promptName || "";
   preset.loraBindings = (existingPreset.loraBindings || []).map(binding => ({ ...binding }));
+  if (existingPreset.loraBindingsByAddress) preset.loraBindingsByAddress = JSON.parse(JSON.stringify(existingPreset.loraBindingsByAddress));
   if (existingPreset.wikiNameSource) preset.wikiNameSource = existingPreset.wikiNameSource;
   normalizeCharacterPreset(existingPreset);
   preset.photoMedia = existingPreset.photoMedia || [];
@@ -89392,12 +89395,15 @@ async function testComfyui() {
       const samplers = await response2.json();
       const vaes = await response3.json();
       const schedulers = await response4.json();
+      const loraResponse = await fetch("/api/sd/comfy/loras", {method:"POST",body:JSON.stringify({url:testurl1}),headers:getRequestHeaders(window.token),signal:AbortSignal.timeout(15000)});
+      if (!loraResponse.ok) throw new Error("ComfyUI LoRA 列表读取失败");
+      const loras = await loraResponse.json();
       const cacheData = {
         models: model,
         samplers,
         vaes,
         schedulers,
-        loras: []
+        loras
       };
       await saveFullComfyuiCache(cacheData);
       window.dispatchEvent(new CustomEvent("comfyui-cache-updated", { detail: cacheData }));
@@ -89549,6 +89555,7 @@ function initApiConnectionTests(settingsModal) {
       button.disabled = false;
     }
   });
+  mountComfyAddressHistory(document.getElementById("comfyuiUrl"), () => extension_settings71[extensionName], saveSettingsDebounced71);
   const comfyUrlInput = settingsModal.find("#comfyuiUrl");
   if (comfyUrlInput.length) {
     comfyUrlInput.on("change", function() {
@@ -113062,9 +113069,28 @@ async function main() {
     saveSettingsDebounced72();
   }
   extension_settings116[extensionName] = mergedSettings;
+  migrateAddressLoras(mergedSettings);
+  saveSettingsDebounced72();
   initializeWardrobe({
     getSettings: () => extension_settings116[extensionName], getContext,
-    getLoras: async () => { init_configDatabase(); return await getComfyuiCache("loras") || []; },
+    getLoras: async () => {
+      init_configDatabase();
+      const config = extension_settings116[extensionName];
+      const url = (document.getElementById("comfyuiUrl")?.value || config.comfyuiUrl || "").trim().replace(/\/+$/, "");
+      if (!url) throw new Error("请先配置 ComfyUI API 地址。");
+      const response = config.client === "jiuguan"
+        ? await fetch("/api/sd/comfy/loras", {method:"POST",headers:getRequestHeaders(window.token),body:JSON.stringify({url}),signal:AbortSignal.timeout(15000)})
+        : await fetch(url + "/object_info", {signal:AbortSignal.timeout(15000)});
+      if (!response.ok) throw new Error(`读取 ComfyUI LoRA 列表失败（HTTP ${response.status}），请检查连接。`);
+      const data = await response.json();
+      const names = Array.isArray(data) ? data : Object.values(data).flatMap(node => {
+        const list = node?.input?.required?.lora_name?.[0] ?? node?.input?.optional?.lora_name?.[0];
+        return Array.isArray(list) ? list.filter(name => typeof name === "string") : [];
+      });
+      const loras = [...new Set(names)].sort();
+      await saveComfyuiCache("loras", loras);
+      return loras;
+    },
     events: eventSource, eventTypes: event_types, save: saveSettingsDebounced72,
     notify: (message, success) => success ? toastr.success(message) : toastr.warning(message),
     getImage: async id => { init_configDatabase(); return getConfigImage(id); },

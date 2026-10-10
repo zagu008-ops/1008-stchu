@@ -231,3 +231,36 @@
 .wardrobe-bulk-actions {padding:12px;border:1px solid #ffffff30;border-radius:10px;margin:12px 0;background:var(--st-chatu8-input-bg,#1b3048)}
 .wardrobe-bulk-actions>span {flex-basis:100%}
 .wardrobe-card.wardrobe-bulk-selected {outline:2px solid #66baff;outline-offset:-2px}
+
+/* Keep every wardrobe dialog's close action visible while its fields scroll. */
+.wardrobe-dialog-header {position:sticky;top:-22px;z-index:10;display:flex;align-items:center;justify-content:space-between;gap:16px;margin:-22px -22px 16px;padding:16px 18px 12px 22px;background:#14263a;border-bottom:1px solid #ffffff20}
+.wardrobe-dialog-header h3 {margin:0;min-width:0}
+.wardrobe-dialog .wardrobe-dialog-close {display:inline-flex;align-items:center;justify-content:center;flex:0 0 40px;width:40px;height:40px;padding:0;margin:0;border:0;border-radius:8px;background:transparent;color:inherit;font-size:30px;line-height:1;cursor:pointer}
+.wardrobe-dialog .wardrobe-dialog-close:hover {background:#ffffff18}
+.wardrobe-dialog .wardrobe-dialog-close:focus-visible {outline:2px solid #ffa000;outline-offset:2px}
+@media(max-width:600px){.wardrobe-dialog-header{top:-14px;margin:-14px -14px 14px;padding:10px 10px 10px 14px}}
+/* Wiki lookup matches the surrounding editor fields. */
+.wardrobe-dialog .wardrobe-wiki {display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:start;padding:14px;border:1px solid #ffffff25;border-radius:10px;background:#ffffff03}
+.wardrobe-dialog .wardrobe-wiki>input,.wardrobe-dialog .wardrobe-wiki select {box-sizing:border-box;width:100%;min-width:0;min-height:42px;padding:10px 12px;border:1px solid #ffffff30;border-radius:8px;background:#14263a;color:#eee;font:inherit;line-height:1.3}
+.wardrobe-dialog .wardrobe-wiki>input::placeholder {color:#a0afbf;opacity:1}
+.wardrobe-dialog .wardrobe-wiki>input:focus-visible,.wardrobe-dialog .wardrobe-wiki select:focus-visible {outline:2px solid #ffad3d;outline-offset:2px}
+.wardrobe-dialog .wardrobe-wiki>.menu_button {margin:0;min-height:42px}
+.wardrobe-dialog .wardrobe-wiki>div {grid-column:1/-1;min-width:0}
+.wardrobe-dialog .wardrobe-wiki>div:empty {display:none}
+.wardrobe-dialog .wardrobe-wiki p {color:#c2cbd5;line-height:1.5}
+@media(max-width:600px){.wardrobe-dialog .wardrobe-wiki{grid-template-columns:minmax(0,1fr);padding:12px}.wardrobe-dialog .wardrobe-wiki>.menu_button{width:100%!important}}
+/* Address input and history follow the preset selector's stacked layout. */
+#ch-tab-comfyui .comfy-address-field {display:flex!important;flex-direction:column!important;align-items:stretch!important;gap:10px}
+#ch-tab-comfyui .comfy-address-field>label {width:auto!important;flex:none!important;margin:0}
+#ch-tab-comfyui .comfy-address-field>.st-chatu8-input-group {display:flex;gap:8px;width:100%;min-width:0}
+#ch-tab-comfyui .comfy-address-field #comfyuiUrl {flex:1;min-width:0;width:100%;box-sizing:border-box;height:42px}
+.comfy-address-history {display:grid;grid-template-columns:minmax(0,1fr);gap:10px;width:100%;min-width:0;padding:12px;box-sizing:border-box;border:1px solid var(--st-chatu8-border-color,#ffffff25);border-radius:8px;background:var(--st-chatu8-bg-secondary,#ffffff05)}
+.comfy-address-history>label {font-size:13px;opacity:.8;margin:0}
+.comfy-address-history>select {width:100%!important;min-width:0!important;box-sizing:border-box;height:42px;padding:8px 12px;background:var(--st-chatu8-bg-primary,#14263a);color:var(--st-chatu8-text-primary,#eee);border:1px solid var(--st-chatu8-border-color,#ffffff30);border-radius:6px}
+.comfy-address-actions {display:flex;flex-wrap:wrap;gap:8px}
+.comfy-address-actions .st-chatu8-btn {margin:0;min-height:38px;flex:0 1 auto}
+.comfy-address-status:empty {display:none}
+.comfy-address-status {font-size:12px;opacity:.75}
+@media(max-width:600px){.comfy-address-actions .st-chatu8-btn{flex:1}#ch-tab-comfyui .comfy-address-field>.st-chatu8-input-group{flex-wrap:wrap}#ch-tab-comfyui .comfy-address-field #comfyuiUrl{flex-basis:100%}}
+.wardrobe-dialog .wardrobe-lora-enabled {flex-direction:row;align-items:center;gap:10px;color:#eee}
+.wardrobe-dialog .wardrobe-lora-enabled input[type=checkbox] {appearance:auto!important;box-sizing:border-box;width:18px!important;height:18px!important;min-width:18px!important;min-height:18px!important;flex:0 0 18px;margin:0!important;padding:0!important;accent-color:#ffad3d;cursor:pointer}
