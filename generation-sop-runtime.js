@@ -13,7 +13,9 @@ export function chooseSopFallback(message, action) {
 }
 export async function prepareSopGeneration(options) {
   options={...options,settings:resolveSopAddressSettings(options.settings)};
-  let allowMerged=false,allowGlobalLoras=options.settings.comfyui_multi_lora_mode==='global';
+  // Regional execution is paused: all multi-person requests use the ordinary workflow.
+  options.singleRoleLora=true;
+  let allowMerged=true,allowGlobalLoras=true;
   for (;;) {
     try {
       let plan=buildGenerationPlan({...options,allowMerged,allowGlobalLoras});

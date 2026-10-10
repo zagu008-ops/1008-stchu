@@ -25,6 +25,11 @@ assert.equal(code(()=>buildGenerationPlan({rawTag:structured,preparedTag:structu
 assert.equal(code(()=>buildGenerationPlan({rawTag:'3girls',settings})),'MULTI_UNSUPPORTED');assert.equal(code(()=>buildGenerationPlan({rawTag:'2girls, smiling',settings})),'MULTI_STRUCTURE_REQUIRED');
 const merged=buildGenerationPlan({rawTag:structured,preparedTag:structured,expandedTag:expanded,settings,allowMerged:true});assert.equal(merged.mode,'merged');assert.equal(merged.workflow,settings.worker);
 const loras=structuredClone(settings);loras.characterPresets.snow.loraBindingsByAddress={'http://localhost:8188':[{file:'snow.safetensors',triggerWords:'snow lora'}]};
+const twoLoras=structuredClone(loras);twoLoras.characterPresets.marin.loraBindings=[{file:'marin.safetensors',triggerWords:'marin lora'}];
+const oneRole=buildGenerationPlan({rawTag:structured,preparedTag:structured,expandedTag:expanded,settings:twoLoras,allowMerged:true,allowGlobalLoras:true,singleRoleLora:true});
+assert.deepEqual(oneRole.bindings.map(x=>x.file),['snow.safetensors']);assert(oneRole.positive.includes('blonde hair'));assert(!oneRole.positive.includes('marin lora'));
+twoLoras.yushe.scene.fixedPrompt+='<lora:style:0.5>';
+const publicOnly=buildGenerationPlan({rawTag:structured,preparedTag:structured,settings:twoLoras,allowMerged:true,allowGlobalLoras:true,singleRoleLora:true});assert.equal(publicOnly.bindings.length,0);assert(publicOnly.positive.includes('<lora:style:0.5>'));
 assert.equal(code(()=>buildGenerationPlan({rawTag:structured,preparedTag:structured,expandedTag:expanded,settings:loras})),'GLOBAL_LORA_CONFIRM');
 const global=buildGenerationPlan({rawTag:structured,preparedTag:structured,expandedTag:expanded,settings:loras,allowGlobalLoras:true});assert.equal(global.bindings.length,1);assert(global.warnings.some(value=>value.includes('全局')));
 const missing=structuredClone(settings);missing.characterPresets.snow.promptPresetsByAddress['http://localhost:8188']='deleted';assert.equal(code(()=>resolveRolePromptPreset(missing.characterPresets.snow,missing)),'PRESET_MISSING');

@@ -85,7 +85,7 @@ function detectedCount(text) {
   const max=kind=>Math.max(0,...counts.filter(match=>kind.test(match[2])).map(match=>Number(match[1])));
   return Math.max(max(/^girl/)+max(/^boy/),max(/^(people|person)/));
 }
-export function buildGenerationPlan({rawTag='',preparedTag=rawTag,expandedTag=preparedTag,settings={},selection={},scenePresetId,allowMerged=false,allowGlobalLoras=false}) {
+export function buildGenerationPlan({rawTag='',preparedTag=rawTag,expandedTag=preparedTag,settings={},selection={},scenePresetId,allowMerged=false,allowGlobalLoras=false,singleRoleLora=false}) {
   settings=resolveSopAddressSettings(settings);
   const parsed=parseSopTag(preparedTag), expanded=parseSopTag(expandedTag);
   const flatIdentities=!parsed.structured?identityMatches(preparedTag,settings,selection.characters||[]):[];
@@ -104,10 +104,16 @@ export function buildGenerationPlan({rawTag='',preparedTag=rawTag,expandedTag=pr
   if(count>1&&allowMerged) {mode='merged';warnings.push('本次使用普通合并生成，人物区域不受控制。');}
   const workflow=mode==='regional'?settings.comfyui_multi_workflow:settings.worker;
   if(mode==='regional'&&!workflow) fail('MULTI_WORKFLOW_REQUIRED','请先配置双人分区工作流，或明确选择普通合并生成。');
+  let selectedLoraRole=null;
+  const publicLora=/<(?:lora|wlr):/i.test(join(common.fixedPrompt,common.fixedPrompt_end));
   const characters=parsed.characters.map((character,index)=>{
     const matched=identity(character.prompt,settings,!parsed.structured&&count===1?selection.characters||[]:[]);
     const role=matched?.role, route=resolveRolePromptPreset(role,settings);
-    const bindings=(role?addressLoras(role,settings.comfyuiUrl):[]).map(normalizeLoraBinding).filter(binding=>binding.enabled);
+    let bindings=(role?addressLoras(role,settings.comfyuiUrl):[]).map(normalizeLoraBinding).filter(binding=>binding.enabled);
+    if(singleRoleLora&&count>1&&bindings.length){
+      if(publicLora||(selectedLoraRole!==null&&selectedLoraRole!==matched.key))bindings=[];
+      else selectedLoraRole=matched.key;
+    }
     const expandedCharacter=mergedFlat?null:expanded.characters.find(item=>item.id===character.id);
     const personPrompt=mergedFlat?'':expandedCharacter?.prompt || character.prompt;
     const position=character.coordinates || {x:count===2?(index===0?0.25:0.75):0.5,y:0.5};
@@ -118,12 +124,19 @@ export function buildGenerationPlan({rawTag='',preparedTag=rawTag,expandedTag=pr
       x:position.x,y:position.y,width:count===2?0.5:1,height:1,bindings};
   });
   const bindingMap=new Map();
+  if(singleRoleLora&&count>1)for(const person of characters){
+    if(publicLora||person.roleKey!==selectedLoraRole){
+      person.prompt=person.prompt.replace(/<(?:lora|wlr):[^>]+>/gi,'');
+      person.negative=person.negative.replace(/<(?:lora|wlr):[^>]+>/gi,'');
+    }
+  }
   for(const binding of characters.flatMap(character=>character.bindings)) {
     const key=binding.file.toLowerCase(), previous=bindingMap.get(key);
     if(previous&&(previous.modelWeight!==binding.modelWeight||previous.clipWeight!==binding.clipWeight)) fail('LORA_CONFLICT',`同一 LoRA 权重冲突：${binding.file}`);
     if(!previous) bindingMap.set(key,{...binding});
   }
   const bindings=[...bindingMap.values()];
+  if(singleRoleLora&&count>1)warnings.push(publicLora?'多人图使用公共 LoRA，跳过角色绑定 LoRA。':`多人图使用普通合并提示词；角色 LoRA：${selectedLoraRole||'未加载'}。`);
   const hasGlobalLoras=bindings.length || /<(?:lora|wlr):/i.test(join(common.fixedPrompt,common.fixedPrompt_end,characters.map(character=>character.prompt)));
   // Standard ComfyUI LoraLoader and WeiLin loaders patch globally. Regional text does not scope these patches.
   if(count>1&&hasGlobalLoras&&!allowGlobalLoras) fail('GLOBAL_LORA_CONFIRM','当前角色 LoRA 是全局作用；请确认全局 LoRA 降级，或配置支持区域 LoRA 的专用工作流。');

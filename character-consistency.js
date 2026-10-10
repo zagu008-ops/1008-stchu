@@ -53,10 +53,11 @@ export function enforceCharacterConsistency(plan,settings,preparedPeople,states=
   if(wear?.outfit)wear={...wear,prompt:expandSopResolvedOutfit(wear.outfit,ref)};
   if(!wear&&settings.sopDefaultOutfitKey&&settings.outfitPresets?.[settings.sopDefaultOutfitKey])wear={outfitKey:settings.sopDefaultOutfitKey,source:'public',prompt:expandSopResolvedOutfit(settings.outfitPresets[settings.sopDefaultOutfitKey],ref)};
   const llm=preparedPeople.find(p=>p.id===person.id)?.prompt||'';
-  const bodyClothing=/(?:衬衫|制服|校服|裙|长裤|短裤|外套|毛衣|鞋|袜|泳衣|比基尼|连衣|shirt|blouse|dress|skirt|uniform|pants|jacket|coat|shoes|stockings)/i.test(body);
-  const describedClothing=tokens(llm).some(isSopClothingTag)&&(bodyClothing||(provenFields[person.id]||[]).some(isSopClothingTag));
+  const describedClothing=tokens(llm).some(isSopClothingTag);
   if(wear?.source==='public'&&describedClothing)wear=null;
-  if(!(ref.upperBody==='hidden'&&ref.lowerBody==='hidden')&&!wear&&!describedClothing)throw Object.assign(Error(`角色“${person.name}”没有服装描述，请确认穿搭或配置公共默认服装。`),{code:'OUTFIT_REQUIRED'});
+  if(!(ref.upperBody==='hidden'&&ref.lowerBody==='hidden')&&!wear&&!describedClothing){
+    plan.warnings||=[];plan.warnings.push(`角色“${person.name}”未配置穿搭，沿用 LLM 服装 tag；没有服装 tag 时仍继续生成。`);
+  }
   for(const [label,text,negative] of [['人物正面预设',[preset.fixedPrompt,preset.fixedPrompt_end].join(', '),false],['人物负面预设',preset.negativePrompt,true],['角色负面资料',role.negative,true]])clean(text,locks,label,true===negative,true,wear?.prompt);
   // Check hand-written scene presets independently; never silently rewrite them.
   const scene=settings.yushe?.[plan.scenePresetId]||{};
@@ -93,7 +94,7 @@ export function normalizeDynamicTag(raw,body=''){
    let data;try{data=JSON.parse(json);}catch{throw Error(`人物 ${id} 动态字段 JSON 无效。`);}
    const list=value=>Array.isArray(value)?value.map(String):value?[String(value)]:[];
    const reference=(data.roleKey||data.identityName)?'$'+JSON.stringify({name:String(data.roleKey||data.identityName),angle:data.view==='from behind'?'from behind':'from front',upperBody:['sfw','nsfw','hidden'].includes(data.upperBody)?data.upperBody:'sfw',lowerBody:['sfw','nsfw','hidden'].includes(data.lowerBody)?data.lowerBody:'sfw'})+'$':list(data.originalDescription).join(', ');
-   const parts=['action','expression','pose'].flatMap(key=>list(data[key]));
+   const parts=['action','expression','pose','clothing'].flatMap(key=>list(data[key]));
    provenFields[id]=[];
    for(const field of ['outfitFromBody','appearanceFromBody']){
      const value=data[field];

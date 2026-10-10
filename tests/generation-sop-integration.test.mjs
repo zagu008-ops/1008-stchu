@@ -39,12 +39,12 @@ const dual=harness();
 const dualTag=`Scene Composition:2girls, holding hands;Character 1 Prompt:${reference('深雪')}, smiling|centers:{0.25,0.5};Character 1 UC:angry;Character 2 Prompt:${reference('海梦')}, sitting|centers:{0.75,0.5};Character 2 UC:standing;`;
 const dualResult=await dual.run({prompt:dualTag,extraNegativePrompt:'extra bad'});
 const dualNodes=JSON.parse(JSON.parse(dual.requests[0].options.body).prompt).prompt;
-assert(dualNodes['5'].inputs.text.includes('snow only'));assert(dualNodes['5'].inputs.text.includes('black hair'));assert(!dualNodes['5'].inputs.text.includes('blonde hair'));assert(dualNodes['7'].inputs.text.includes('default person'));assert(dualNodes['7'].inputs.text.includes('blonde hair'));assert(!dualNodes['7'].inputs.text.includes('black hair'));
-assert(dualNodes['3'].inputs.text.includes('AQT marker'));for(const id of ['4','6','8']) {assert(dualNodes[id].inputs.text.includes('UCP marker'));assert(dualNodes[id].inputs.text.includes('extra bad'));}
-assert.equal(dualNodes['9'].inputs.x,0);assert.equal(dualNodes['11'].inputs.x,0.5);assert.equal(dualNodes['18'].inputs.seed,42);
+for(const tag of ['snow only','black hair','default person','blonde hair','AQT marker'])assert(dualNodes['1'].inputs.text.includes(tag));
+assert(dualNodes['2'].inputs.text.includes('UCP marker'));assert(dualNodes['2'].inputs.text.includes('extra bad'));
+assert(!Object.values(dualNodes).some(n=>n.class_type==='ConditioningSetAreaPercentage'));
 assert.deepEqual(dualResult.genParams.generationSop.actualWorkflow,dualNodes);assert.equal(dual.requests.length,1);assert.equal(dual.active.size,0);assert.deepEqual(dual.locks(),{acquired:1,released:1});
 // Missing dual workflow opens the real runtime fallback path; cancelling releases the lock before any network request.
-const cancelled=harness({comfyui_multi_workflow:''});await assert.rejects(cancelled.run({prompt:dualTag}),/已取消生图/);assert.equal(cancelled.requests.length,0);assert.equal(cancelled.active.size,0);assert.deepEqual(cancelled.locks(),{acquired:1,released:1});
+const cancelled=harness({comfyui_multi_workflow:''});await cancelled.run({prompt:dualTag});assert.equal(cancelled.requests.length,1);assert.equal(cancelled.active.size,0);assert.deepEqual(cancelled.locks(),{acquired:1,released:1});
 // A stale explicitly bound person preset is an error, never a silent public fallback.
 const stale=harness();stale.settings.characterPresets.snow.promptPresetsByAddress['http://localhost:8188']='deleted';await assert.rejects(stale.run({prompt:`1girl, ${reference('深雪')}`}),/已失效/);assert.equal(stale.requests.length,0);assert.equal(stale.active.size,0);assert.deepEqual(stale.locks(),{acquired:1,released:1});assert(stale.events.some(event=>event.success===false));
 const invalidJson=harness({worker:'broken json'});await assert.rejects(invalidJson.run({prompt:'1girl, original'}),/JSON/);assert.equal(invalidJson.active.size,0);assert.deepEqual(invalidJson.locks(),{acquired:1,released:1});
@@ -61,5 +61,10 @@ assert(screenshotResult.genParams.generationSop.consistencyTrace.some(t=>t.reaso
 const qualityConflict=harness({characterPresets:authoritative,UCP_comfyui:'silver hair'});
 await assert.rejects(qualityConflict.run({prompt:reference('深雪')}),/公共负面词.*冲突/);assert.equal(qualityConflict.requests.length,0);assert.deepEqual(qualityConflict.locks(),{acquired:1,released:1});
 const dynamic=harness({characterPresets:authoritative});
+const noOutfit=harness({sopDefaultOutfitKey:'',outfitPresets:{}});
+const dressed=await noOutfit.run({prompt:'Scene Composition:1girl, library;Character 1 Dynamic:{"roleKey":"snow","action":["sitting"],"clothing":["white blouse","blue skirt"],"position":[0.5,0.5]};Character 1 UC:bad hands;'});
+assert(dressed.genParams.generationSop.actualWorkflow['1'].inputs.text.includes('white blouse'));
+await noOutfit.run({prompt:'Scene Composition:1girl, library;Character 1 Dynamic:{"roleKey":"snow","action":["sitting"],"position":[0.5,0.5]};Character 1 UC:bad hands;'});
+assert.equal(noOutfit.requests.length,2,'missing clothing never blocks submission');
 const dynamicResult=await dynamic.run({prompt:'Scene Composition:1girl, rooftop;Character 1 Dynamic:{"roleKey":"snow","action":["sitting"],"expression":["surprised"],"position":[0.5,0.5]};Character 1 UC:bad hands;'});
 assert(dynamicResult.genParams.generationSop.actualWorkflow['1'].inputs.text.includes('silver hair'));assert(dynamicResult.genParams.generationSop.actualWorkflow['1'].inputs.text.includes('sitting'));

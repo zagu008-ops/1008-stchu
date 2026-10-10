@@ -47278,7 +47278,7 @@ async function generateComfyUIImage({ prompt: link, width: Xwidth, height: Xheig
   await processSopChangeCandidates(dynamicTag.candidates);
   const authoritySnapshot=getSopStateSnapshot();
   const sopIdentityTag = await resolveAmbiguousCharacterTags(dynamicTag.tag, generationSettings);
-  const characterSelection = prepareCharacterTags(sopIdentityTag.replace(sizeRegex, ""), generationSettings, characterBody, {activeOnly:true,preserveAppearance:Object.keys(dynamicTag.provenFields).length>0});
+  const characterSelection = prepareCharacterTags(sopIdentityTag.replace(sizeRegex, ""), generationSettings, characterBody, {activeOnly:true,preserveAppearance:true});
   // Resolve only the selected tag, so an unused original cannot leak characters/negatives.
   if (change?.trim()) change = characterSelection.tag; else link = characterSelection.tag;
   const selectedCharacterPrompt = await stripChineseAnnotations(processCharacterPrompt(characterSelection.tag));

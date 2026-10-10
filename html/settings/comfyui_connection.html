@@ -171,7 +171,9 @@
         </div>
     </div>
     <div class="st-chatu8-settings-section">
-        <h3>双人分区工作流</h3>
+        <h3>双人分区工作流（已停用）</h3>
+        <p>多人图使用普通工作流，合并各角色提示词；优先公共 LoRA，否则仅加载第一个有绑定的角色 LoRA。下列分区配置保留，不参与生成。</p>
+        <fieldset disabled hidden>
         <div class="st-chatu8-field-col">
             <button type="button" id="comfyui_build_multi_workflow" class="st-chatu8-btn">生成标准双人分区模板</button>
             <small>使用标准 Checkpoint / CLIP 的分区条件工作流，适合兼容的 SDXL 模型。生成模板后请核对模型、VAE 和参数再使用；模板不会立即发起生图。</small>
@@ -193,6 +195,7 @@
         </div>
         <small>开启后可调整人物区域位置和大小；关闭时使用 LLM 构图自动生成。</small>
         <small>人物提示词分区不代表 LoRA 分区。全局双 LoRA 可能使人物特征相互影响；区域 LoRA 需要工作流自身支持。</small>
+        </fieldset>
         <details>
             <summary>双人工作流接入说明</summary>
             <p>工作流需独立接收共同场景、人物 1 / 人物 2 的正面词、负面词和区域位置。区域应连接到实际参与采样的条件节点，仅保留两个文本输入不能实现分区。</p>

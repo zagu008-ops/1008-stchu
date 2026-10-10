@@ -26,7 +26,7 @@ const normalized=normalizeDynamicTag(dynamic,ctx.chat[0].mes);assert(normalized.
 assert(!normalizeDynamicTag(dynamic,'其他正文').tag.includes('golden hair'),'unproven body fields never enter prompt');
 assert.throws(()=>normalizeDynamicTag('Character 1 Dynamic:{"position":[2,0]};'),/坐标/);
 const missing={...settings,characterPresets:{star:{nameCN:'star'}}};
-assert.throws(()=>enforceCharacterConsistency({...fresh(),characters:[{...fresh().characters[0],prompt:'sitting'}]},missing,[{id:1,prompt:'sitting'}]),e=>e.code==='OUTFIT_REQUIRED');
+assert(enforceCharacterConsistency({...fresh(),characters:[{...fresh().characters[0],prompt:'sitting'}]},missing,[{id:1,prompt:'sitting'}]).warnings.length);
 console.log('Consistency: screenshot conflict, positive/negative source validation, action retention, wardrobe authority, evidence, overrides and source invalidation passed.');
 
 const acting=fresh();acting.characters[0].prompt+=' , golden hair tucked behind ear';
@@ -35,5 +35,5 @@ const withCollar=fresh();withCollar.characters[0].prompt+=' , dress with bow';
 assert(!enforceCharacterConsistency(withCollar,settings,prepared,state).positive.includes('dress with bow'));
 
 const fallbackSettings={...settings,sopDefaultOutfitKey:'basic',outfitPresets:{basic:{upperBody:'white shirt',fullBody:'blue skirt'}}};
-const publicWear=enforceCharacterConsistency(fresh(),fallbackSettings,prepared,{},'她坐着。');assert(publicWear.positive.includes('white shirt'));assert(!publicWear.positive.includes('school uniform'));
+const publicWear=enforceCharacterConsistency(fresh(),fallbackSettings,prepared,{},'她坐着。');assert(publicWear.positive.includes('school uniform'));assert(!publicWear.positive.includes('white shirt'));
 const bodyWear=enforceCharacterConsistency(fresh(),fallbackSettings,prepared,{},'她穿校服坐着。');assert(bodyWear.positive.includes('school uniform'));
