@@ -1,3 +1,4 @@
+import {resolveAppearanceOverride,clearAppearanceOverride,saveAppearanceOverride,authorityAppearance,appearanceAttributes} from './character-consistency.js';
 import {filterComfyPresets,bindPresetAddress} from './comfy-preset-scope.js';
 import { CHARACTER_DRAFT_FIELDS, buildCharacterDraftMessages, parseCharacterDraft } from './character-draft.js';
 import { enabledRoleLists, setRoleEnabled, mergePromptTags, paginateItems, deletionImpact, deleteLibraryItem, restoreLibraryItem, library, roleCombinations, bindCombination, unbindCombination, names, newId, scene, latestBody, validSource, resolveWear, applyWear, matchOutfits, selectedOutfitKeys, saveCover, parseCivitLink, civitGroups, importCivitGroups, chatKey } from './wardrobe-store.js';
@@ -66,7 +67,40 @@ export function getSopOutfitForRole(roleKey, reference={}) {
  const r=Object.values(library(s).roles).find(role=>role.key===roleKey);
  const wear=r&&resolveWear(s,deps.getContext(),r.id);
  if(!wear)return null;
- return {roleId:r.id,outfitKey:wear.outfitKey,comboId:wear.comboId,source:wear.source?.default?'default':'chat',prompt:expandSopResolvedOutfit(wear.outfit,reference)};
+ return {roleId:r.id,outfitKey:wear.outfitKey,comboId:wear.comboId,source:wear.source?.default?'default':'chat',outfit:structuredClone(wear.outfit),prompt:expandSopResolvedOutfit(wear.outfit,reference)};
+}
+export function getSopStateSnapshot(){
+ if(!deps)return {roles:{},body:'',contextKey:''};
+ const s=settings(),ctx=deps.getContext(),body=latestBody(ctx),roles={};
+ for(const [key,role] of Object.entries(s.characterPresets||{})){
+   if(!roleEnabled(key))continue;
+   const override=resolveAppearanceOverride(s,ctx,key);
+   let wear=getSopOutfitForRole(key);
+   if(!wear&&!s.wardrobe?.enabled&&role.outfits?.length===1&&s.outfitPresets?.[role.outfits[0]])wear={outfitKey:role.outfits[0],source:'legacy-default',prompt:expandSopResolvedOutfit(s.outfitPresets[role.outfits[0]])};
+   roles[key]={appearanceOverride:override,appearance:authorityAppearance(role,{},override),wear};
+ }
+ return {roles,body:body.text,contextKey:chatKey(ctx),source:{index:body.index,stamp:body.stamp}};
+}
+export async function processSopChangeCandidates(candidates){
+ if(!deps)return;const s=settings(),ctx=deps.getContext(),source=latestBody(ctx);
+ for(const candidate of candidates){
+   if(!roleEnabled(candidate.roleKey)||!s.characterPresets?.[candidate.roleKey]||typeof candidate.evidence!=='string'||!candidate.evidence.trim()||!source.text.includes(candidate.evidence))continue;
+   if(candidate.kind==='outfitChange'){
+     const w=library(s),role=Object.values(w.roles).find(r=>r.key===candidate.roleKey),combo=role&&roleCombinations(s,role.id).find(c=>w.outfits[c.outfitId]?.key===candidate.outfitKey);
+     if(combo&&!w.pending.some(p=>p.kind==='wear'&&p.roleId===role.id&&p.comboId===combo.id&&p.chat===chatKey(ctx))){
+       w.pending.push({kind:'wear',roleId:role.id,comboId:combo.id,chat:chatKey(ctx),source:{index:source.index,stamp:source.stamp},evidence:candidate.evidence});deps.save();deps.notify('正文提出换装，请在角色衣橱的待确认中应用。');
+     }
+     if(!combo)deps.notify('换装候选未匹配当前角色衣橱，请先添加并确认服装。');
+     continue;
+   }
+   const rawTags=Array.isArray(candidate.tags)?candidate.tags:String(candidate.tags||'').split(',');
+   const tags=rawTags.filter(t=>Object.keys(appearanceAttributes(t)).length).join(', ');if(!tags.trim()){deps.notify('外貌变化未包含可识别属性，仍使用固定配置。');continue;}
+   if(resolveAppearanceOverride(s,ctx,candidate.roleKey)?.tags===tags)continue;
+   await new Promise(resolve=>{
+     const d=dialog('确认当前聊天外貌变化');d.append(el('p',`${candidate.roleKey}：${tags}`),el('p','正文依据：'+candidate.evidence),el('p','确认后仅作用于当前聊天；改写或切换来源正文时失效。'));
+     d.append(button('确认聊天内覆盖',()=>{if(chatKey(deps.getContext())!==chatKey(ctx)||!validSource({index:source.index,stamp:source.stamp},deps.getContext()))throw Error('来源正文已变化，请重新生成。');saveAppearanceOverride(s,ctx,candidate.roleKey,tags);deps.save();d.close();}),button('保持固定外貌',()=>d.close()));d.addEventListener('close',resolve,{once:true});
+   });
+ }
 }
 function scan(roleId,notify=true){
  const s=settings(),w=library(s),ctx=deps.getContext(),body=latestBody(ctx);
@@ -157,11 +191,20 @@ function mountRolePromptEditor(parent,s,role){
 function edit(type,id,targetRoleId=null){const s=settings(),w=library(s),record=w[type][id],presets=type==='roles'?s.characterPresets:s.outfitPresets,p=presets?.[record?.key]||{},d=dialog(type==='roles'?'角色资料':'服装资料');
  const users=type==='outfits'?Object.values(w.roles).filter(r=>roleCombinations(s,r.id).some(c=>c.outfitId===id)).map(r=>r.key):[];if(users.length)d.append(el('p',`这套服装被 ${users.join('、')} 使用；编辑共享资料会影响这些角色。若只想补充当前角色，可改名后点“复制为新款”。`));
  const cn=field(d,'中文名称 / 别名（用 | 分隔）',p.nameCN||record?.key||''),en=field(d,'英文名称 / 别名',p.nameEN||'');const promptName=type==='roles'?field(d,'生图名称（英文 / 罗马音，给 ComfyUI）',p.promptName||''):null;let wikiSource=p.wikiNameSource||null;if(promptName){d.append(el('p','名称 / 别名用于正文识别；生图名称单独注入提示词，可填写模型习惯的姓名顺序。'));attachWikiLookup(d,{nameInput:cn,aliasInput:cn,promptInput:promptName,signal:d.controller.signal,onApply:value=>{wikiSource=value;}});}const trigger=type==='outfits'?field(d,'LoRA 激活词（生图时加入）',p.loraTriggerWords??record?.civit?.activation??'','textarea'):null;const fields=type==='roles'?['characterTraits','facialFeatures','upperBodySFW','fullBodySFW']:['upperBody','fullBody','upperBodyBack','fullBodyBack'];const inputs=fields.map(k=>[k,field(d,({characterTraits:'固定特征',facialFeatures:'面部特征',upperBodySFW:'固定上半身',fullBodySFW:'固定下半身',upperBody:'上装提示词',fullBody:'下装 / 鞋袜提示词',upperBodyBack:'上装背面',fullBodyBack:'下装背面'})[k],p[k]||'','textarea')]);
+ let defaultOutfitDraft=s.sopDefaultOutfitKey||'';
+ if(type==='roles'){
+   const override=resolveAppearanceOverride(s,deps.getContext(),record.key);
+   d.append(el('p',override?'当前聊天外貌覆盖：'+override.tags:'当前聊天外貌：使用固定角色资料'));
+   if(override)d.append(button('恢复当前聊天固定外貌',()=>{clearAppearanceOverride(s,deps.getContext(),record.key);persist();d.close();}));
+   const defaultWear=field(d,'公共默认服装（无聊天／角色穿搭且正文没写时使用）','','select');
+   defaultWear.add(new Option('未设置，缺服装时提示配置',''));for(const key of Object.keys(s.outfitPresets||{}))defaultWear.add(new Option(key,key));defaultWear.value=s.sopDefaultOutfitKey||'';
+   defaultWear.onchange=()=>{defaultOutfitDraft=defaultWear.value;};
+ }
  const promptEditor=type==='roles'?mountRolePromptEditor(d,s,p):null;
  const loraEditor=type==='roles'?mountCharacterLoraEditor(d,p,()=>deps.getLoras?.(),()=>settings().comfyuiUrl):null;
  if(record?.civit)d.append(el('pre',JSON.stringify(record.civit,null,2)));
  const write=(copy)=>{const name=cn.value.trim();if(!name)throw Error('请填写名称。');const key=name.split('|')[0].trim();if(presets?.[key]&&(!record||key!==record.key))throw Error('同名资料已存在，请使用其他名称。');const next={...structuredClone(p),nameCN:name,nameEN:en.value.trim()};for(const [k,n]of inputs)next[k]=n.value.trim();if(type==='roles'){next.outfits||=[];next.promptName=promptName.value.trim();if(wikiSource)next.wikiNameSource=wikiSource;}else{next.loraTriggerWords=trigger.value.trim();next.photoImageIds||=[];next.photoPrompt=[next.upperBody,next.fullBody].filter(Boolean).join(', ');}
- if(promptEditor)next.promptPresetsByAddress=promptEditor.readByAddress();
+ if(promptEditor){next.promptPresetsByAddress=promptEditor.readByAddress();s.sopDefaultOutfitKey=defaultOutfitDraft;}
  if(loraEditor){next.loraBindingsByAddress=loraEditor.readByAddress();next.loraBindings=[];}
  const target=type==='roles'?(s.characterPresets ||= {}):(s.outfitPresets ||= {});target[key]=next;
  if(record&&!copy&&key!==record.key){const old=record.key;delete target[old];record.key=key;

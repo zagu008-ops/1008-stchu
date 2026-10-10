@@ -1,3 +1,4 @@
+import {normalizeDynamicTag,enforceCharacterConsistency,validateConsistencySources} from './character-consistency.js';
 import {filterComfyPresets,bindPresetAddress} from './comfy-preset-scope.js';
 import { applySopOutfitPriority, isSopClothingTag } from './generation-sop-outfit.js';
 import { buildSopLlmInstructions } from './generation-sop-instructions.js';
@@ -29,7 +30,7 @@ import { mountComfyAddressHistory } from './comfy-address-history.js';
 import { normalizeStoryboardCount, buildStoryboardInstructions, validateStoryboardImages } from "./storyboard.js";
 import { mergePromptTags } from "./wardrobe-store.js";
 import { hasOutsideCharacterAppearance, prepareCharacterTags, appendCharacterLoras, applyCharacterLorasToWorkflow } from "./character-lora.js";
-import { initializeWardrobe, mountWardrobe, wardrobeOutfits, wardrobeSelectedOutfits, getSopOutfitForRole } from "./wardrobe-ui.js";
+import { initializeWardrobe, mountWardrobe, wardrobeOutfits, wardrobeSelectedOutfits, getSopOutfitForRole, getSopStateSnapshot, processSopChangeCandidates } from "./wardrobe-ui.js";
 import { openOutfitVision } from "./outfit-vision.js";
 import { initializeCharacterSync, bindCharacterSyncControls, openCharacterSync } from "./character-sync.js";
 import { saveSettingsDebounced as saveSettingsDebounced2 } from "../../../../script.js";
@@ -37929,7 +37930,7 @@ function LLM_EXECUTE(prompt2, { timeoutMs = 6e5 } = {}) {
   });
 }
 function LLM_IMAGE_GEN(prompt2, { timeoutMs = 6e5 } = {}) {
-  if(extension_settings[extensionName]?.mode === "comfyui" && Array.isArray(prompt2)) prompt2=[...prompt2,{role:"system",content:buildSopLlmInstructions(extension_settings[extensionName])}];
+  if(extension_settings[extensionName]?.mode === "comfyui" && Array.isArray(prompt2)) prompt2=[...prompt2,{role:"system",content:buildSopLlmInstructions(extension_settings[extensionName],getSopStateSnapshot())}];
   return new Promise((resolve, reject) => {
     const executeRequestId = generateRequestId7();
     const timer = debugTimer("llmRequest.LLM_IMAGE_GEN", "\u6B63\u6587\u56FE\u7247\u751F\u6210 LLM \u8BF7\u6C42");
@@ -47231,8 +47232,11 @@ async function generateComfyUIImage({ prompt: link, width: Xwidth, height: Xheig
     change = change.replace(sizeRegex, "");
   }
   const sopOriginalTag = change_ || link;
-  const sopIdentityTag = await resolveAmbiguousCharacterTags(sopOriginalTag, generationSettings);
-  const characterSelection = prepareCharacterTags(sopIdentityTag.replace(sizeRegex, ""), generationSettings, characterBody, {activeOnly:true});
+  const dynamicTag=normalizeDynamicTag(sopOriginalTag,characterBody||getSopStateSnapshot().body);
+  await processSopChangeCandidates(dynamicTag.candidates);
+  const authoritySnapshot=getSopStateSnapshot();
+  const sopIdentityTag = await resolveAmbiguousCharacterTags(dynamicTag.tag, generationSettings);
+  const characterSelection = prepareCharacterTags(sopIdentityTag.replace(sizeRegex, ""), generationSettings, characterBody, {activeOnly:true,preserveAppearance:Object.keys(dynamicTag.provenFields).length>0});
   // Resolve only the selected tag, so an unused original cannot leak characters/negatives.
   if (change?.trim()) change = characterSelection.tag; else link = characterSelection.tag;
   const selectedCharacterPrompt = await stripChineseAnnotations(processCharacterPrompt(characterSelection.tag));
@@ -47305,15 +47309,13 @@ async function generateComfyUIImage({ prompt: link, width: Xwidth, height: Xheig
     settings:generationSettings, selection:characterSelection, scenePresetId:_comfyui_yushe_id
   });
   const preparedPeople=parseSopTag(characterSelection.tag).characters;
-  for(const person of sopPlan.characters){
-    if(!person.roleKey)continue;
-    let reference={};const ref=preparedPeople.find(p=>p.id===person.id)?.prompt.match(/\$([^$]+)\$/);
-    try{reference=JSON.parse(ref?.[1]||'{}');}catch{}
-    const wear=getSopOutfitForRole(person.roleKey,reference);
-    if(wear){person.prompt=applySopOutfitPriority(person.prompt,wear.prompt);person.outfit={outfitKey:wear.outfitKey,comboId:wear.comboId,source:wear.source};}
-  }
-  if(sopPlan.characters.some(p=>p.outfit)) sopPlan.scenePrompt=sopPlan.scenePrompt.split(',').filter(t=>!isSopClothingTag(t)).join(',');
-  sopPlan.positive=[sopPlan.scenePrompt,...sopPlan.characters.map(p=>p.prompt)].filter(Boolean).join(', ');
+  enforceCharacterConsistency(sopPlan,generationSettings,preparedPeople,authoritySnapshot.roles,characterBody||authoritySnapshot.body,dynamicTag.provenFields);
+  validateConsistencySources(sopPlan,[
+    {name:'公共质量词',text:generationSettings.AQT_comfyui},
+    {name:'公共负面词',text:generationSettings.UCP_comfyui,negative:true},
+    {name:'额外负面词',text:extraNegativePrompt,negative:true},
+    ...Object.entries(insertions||{}).map(([name,text])=>({name:'提示词替换 '+name,text}))
+  ]);
   if(sopPlan.bindings.length || /<(?:lora|wlr):/i.test(sopPlan.positive+", "+sopPlan.negative)) {
     const listResponse = generationSettings.client==='jiuguan'
       ? await fetch('/api/sd/comfy/loras',{method:'POST',headers:getRequestHeaders(window.token),body:JSON.stringify({url}),signal:abortController.signal})
@@ -47475,9 +47477,11 @@ Scheduler: ${payload.scheduler}
   workflowToUse = JSON.stringify(materializeSopWorkflow(workflowToUse,sopPlan));
   payload = await replacepro(payload, workflowToUse);
   const actualWorkflow = applyComfyClipSkip(applyCharacterLorasToWorkflow(JSON.parse(payload), sopPlan.bindings), generationSettings.comfyui_clip_skip);
-  _comfy_gen_params.generationSop = {...sopPlan.snapshot, scenePrompt:sopPlan.scenePrompt, sceneNegative:sopPlan.sceneNegative, characters:structuredClone(sopPlan.characters), bindings:structuredClone(sopPlan.bindings), warnings:[...sopPlan.warnings], actualWorkflow:structuredClone(actualWorkflow)};
+  _comfy_gen_params.generationSop = {...sopPlan.snapshot, scenePrompt:sopPlan.scenePrompt, sceneNegative:sopPlan.sceneNegative, characters:structuredClone(sopPlan.characters), bindings:structuredClone(sopPlan.bindings), warnings:[...sopPlan.warnings], consistencyTrace:sopPlan.consistencyTrace, authoritySnapshot, actualWorkflow:structuredClone(actualWorkflow)};
   payload = JSON.stringify({client_id:clientId,prompt:actualWorkflow});
   addLog(`\u53D1\u9001\u5230 ComfyUI \u7684\u6700\u7EC8 payload: ${payload} `);
+    const currentAuthority=getSopStateSnapshot();
+    if(authoritySnapshot.contextKey&&(currentAuthority.contextKey!==authoritySnapshot.contextKey||currentAuthority.source?.stamp!==authoritySnapshot.source?.stamp))throw new Error('聊天或来源正文已变化，请按当前状态重新生成。');
     if (comfyAddressKey(extension_settings49[extensionName].comfyuiUrl)!==comfyAddressKey(url)) throw new Error("生成过程中 ComfyUI 地址已切换，请按当前配置重新生成。");
     if (!taskQueue.isTaskInQueue(taskId)) {
       addLog("\u6B63\u5F0F\u8BF7\u6C42\u524D\u68C0\u6D4B\u5230\u4EFB\u52A1\u5DF2\u88AB\u53D6\u6D88\u3002");

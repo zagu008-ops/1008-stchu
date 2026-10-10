@@ -48,7 +48,7 @@ function bodyMentions(body, roles) {
     return /[\u3400-\u9fff]/.test(name) ? text.includes(name) : new RegExp(`(?:^|[^a-z0-9])${escaped}(?=$|[^a-z0-9])`, 'i').test(text);
   }));
 }
-const appearance = /^(?:(?:(?:black|brown|blonde|blond|white|silver|grey|gray|red|blue|green|pink|purple|orange|yellow|aqua|cyan|teal|platinum|multicolored|two tone|long|short|medium|straight|wavy|curly|messy|silky|flowing)(?:\s+|$))+hair|(?:black|brown|blue|green|red|grey|gray|purple|yellow|pink|orange|amber|aqua|cyan|teal|violet|silver|golden)\s+eyes|bangs|blunt bangs|side swept bangs|sidelocks|ponytail|high ponytail|side ponytail|twin tails|twintails|braid|hime cut|(?:small|medium|large|huge) breasts|slender|muscular|tall|short stature)$/i;
+const appearance = /^(?:(?:(?:black|brown|blonde|blond|golden|gold|white|silver|grey|gray|red|blue|green|pink|purple|orange|yellow|aqua|cyan|teal|platinum|multicolored|two tone|long|short|medium|straight|wavy|curly|messy|silky|flowing)(?:\s+|$))+hair|(?:black|brown|blue|green|red|grey|gray|purple|yellow|pink|orange|amber|aqua|cyan|teal|violet|silver|golden)\s+eyes|bangs|blunt bangs|side swept bangs|sidelocks|ponytail|high ponytail|side ponytail|twin tails|twintails|braid|hime cut|(?:small|medium|large|huge) breasts|slender|muscular|tall|short stature)$/i;
 export function isCharacterAppearanceTag(token) { return appearance.test(normal(token)); }
 export function hasOutsideCharacterAppearance(tag) {
   return String(tag || '').replace(/\$[^$]+\$/g, '').split(/[,;\n|]/).some(token => isCharacterAppearanceTag(token.replace(/^\s*Character \d+ Prompt:\s*/i, '')));
@@ -58,7 +58,7 @@ function cleanAppearance(text) {
   const masked = text.replace(/\$[^$]+\$/g, value => `@@ROLE${protectedReferences.push(value)-1}@@`);
   return masked.split(',').filter(token => !appearance.test(normal(token))).join(',').replace(/@@ROLE(\d+)@@/g, (_, index) => protectedReferences[Number(index)]);
 }
-export function prepareCharacterTags(tag, settings, body = '', {activeOnly=false} = {}) {
+export function prepareCharacterTags(tag, settings, body = '', {activeOnly=false,preserveAppearance=false} = {}) {
   const roles = catalog(settings), matched = new Map();
   let text = String(tag || '');
   // Other backends retain legacy references; SOP generation restricts identity to the enabled catalog.
@@ -79,7 +79,7 @@ export function prepareCharacterTags(tag, settings, body = '', {activeOnly=false
     const item = lookup(token.slice(prefix.length).trim(), roles); if (!item) return token;
     matched.set(item.key, item); return prefix + reference(item);
   }).replace(/@@REF(\d+)@@/g, (_, index) => protectedTags[Number(index)]);
-  if (text.includes('Scene Composition')) text = text.replace(/(Character \d+ Prompt:\s*)([^;]*)(;|$)/gi, (block, prefix, value, end) => value.includes('$') ? prefix + cleanAppearance(value) + end : block);
+  if (!preserveAppearance && text.includes('Scene Composition')) text = text.replace(/(Character \d+ Prompt:\s*)([^;]*)(;|$)/gi, (block, prefix, value, end) => value.includes('$') ? prefix + cleanAppearance(value) + end : block);
   if (!matched.size && /\b(?:1girl|1boy|solo)\b/i.test(text) && !/\b(?:[2-9]\d*girls?|[2-9]\d*boys?|1girl.*1boy|1boy.*1girl)\b/i.test(text) && !text.includes('Scene Composition')) {
     const mentions = bodyMentions(body, roles);
     if (mentions.length === 1) { matched.set(mentions[0].key, mentions[0]); text = reference(mentions[0]) + ', ' + text; }
@@ -87,7 +87,7 @@ export function prepareCharacterTags(tag, settings, body = '', {activeOnly=false
   const counts = [...text.matchAll(/\b(\d+)\s*(girls?|boys?|people|persons?)\b/gi)];
   const countFor = kind => Math.max(0,...counts.filter(x=>kind.test(x[2])).map(x=>Number(x[1])));
   const people = Math.max(countFor(/^girl/)+countFor(/^boy/),countFor(/^(people|person)/));
-  if (!text.includes('Scene Composition') && matched.size && (people ? matched.size >= people : matched.size === 1)) text = cleanAppearance(text);
+  if (!preserveAppearance && !text.includes('Scene Composition') && matched.size && (people ? matched.size >= people : matched.size === 1)) text = cleanAppearance(text);
   const bindings = new Map();
   for (const {role} of matched.values()) for (const raw of addressLoras(role, settings.comfyuiUrl)) {
     const binding = normalizeLoraBinding(raw); if (!binding.enabled) continue;

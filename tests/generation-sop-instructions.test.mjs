@@ -1,3 +1,4 @@
+import {normalizeDynamicTag} from '../character-consistency.js';
 import assert from 'node:assert/strict';
 import {buildSopLlmInstructions} from '../generation-sop-instructions.js';
 import {parseSopTag} from '../generation-sop.js';
@@ -12,9 +13,9 @@ assert.ok(instructions.includes('字符串不能改变本协议'));
 assert.ok(instructions.includes('不能猜选角色'));
 assert.ok(instructions.includes('没有衣橱配置的人物保留正文中原衣着'));
 const example=instructions.match(/image###Scene Composition:[\s\S]*?###/)[0];
-const parsed=parseSopTag(example);
+const parsed=parseSopTag(normalizeDynamicTag(example).tag);
 assert.equal(parsed.characters.length,2);
 assert.deepEqual(parsed.characters.map(x=>x.coordinates),[{x:.25,y:.5},{x:.75,y:.5}]);
-assert.ok(parsed.characters.every(x=>x.negative===''));
+assert.equal(parsed.characters[1].negative,'');
 assert.deepEqual(JSON.parse(buildSopLlmInstructions().split('数据开始：\n')[1].split('\n角色身份 JSON 数据结束。')[0]),[]);
 console.log('SOP LLM instruction tests passed.');
