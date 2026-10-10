@@ -44,19 +44,22 @@ for (const [startTag, endTag] of [['image###', '###'], ['[prompt]', '[/prompt]']
 }
 // Exercise the actual request pipeline with a mocked LLM and insertion boundary.
 const requestPipeline = source.slice(source.indexOf('async function processImageLikeRequest('), source.indexOf('var init_promptReq', source.indexOf('async function processImageLikeRequest(')));
-async function runRequest(results, { stale = false, autoReply = true } = {}) {
+async function runRequest(results, { stale = false, autoReply = true, comfyLegacy = false } = {}) {
   const message = { mes: body };
   const context = { chat: [message], chatMetadata: { variables: {} } };
   const settings = { storyboardEnabled: 'true', storyboardImageCount: 3, zidongdianji: 'false' };
+  if (comfyLegacy) settings.mode = 'comfyui';
   let calls = 0;
   let inserted = [];
   const warnings = [];
   const sandbox = {
+    getTagGenerationChain: () => 'legacy',
+    usesStructuredTagChain: (type, current, chain) => type === 'image_gen' && current?.mode === 'comfyui' && chain === 'structured',
     normalizeStoryboardCount, buildStoryboardInstructions, validateStoryboardImages,
     getContext12: () => context, extension_settings40: { test: settings }, extensionName: 'test',
     debugTimer: () => ({ end() {} }), debugMilestone() {}, debugLog() {}, debugBranch() {}, debugError() {},
     toastr: { info() {}, success() {}, error: text => warnings.push(text), warning: text => warnings.push(text) },
-    getElContext: async () => ['以前的剧情', body],
+    getElContext: async (_el, depth) => { assert.equal(depth, 3); return ['以前的剧情', body]; },
     processWorldBooksWithTrigger: async () => '',
     buildPromptForRequestType: () => [{ role: 'user', content: body }],
     generateCharacterListText: () => '', generateOutfitEnableListText: () => '', generateCommonCharacterListText: () => '',
@@ -73,8 +76,9 @@ async function runRequest(results, { stale = false, autoReply = true } = {}) {
   vm.createContext(sandbox);
   vm.runInContext(requestPipeline, sandbox);
   const el = { isConnected: true, closest: () => ({ getAttribute: () => '0' }) };
-  const llm = async messages => {
+  const llm = async (messages, options) => {
     calls++;
+    if (comfyLegacy) assert.equal(options.legacyTagChain, true);
     if (autoReply) assert.ok(messages.some(m => m.content.includes('连续分镜要求')));
     if (stale) context.chat = [{ mes: '新的聊天' }];
     return { result: JSON.stringify(results[Math.min(calls - 1, results.length - 1)]) };
@@ -93,4 +97,5 @@ assert.equal((await runRequest([shots], { stale: true })).inserted.length, 0);
 const manual = await runRequest([shots.slice(0, 1)], { autoReply: false });
 assert.equal(manual.calls, 1);
 assert.equal(manual.inserted.length, 1);
+assert.equal((await runRequest([shots], {comfyLegacy:true})).inserted.length,3);
 console.log('Storyboard validation, upstream parser, retry/insertion, stale-chat and manual-flow tests passed.');

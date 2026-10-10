@@ -5,6 +5,7 @@ import {parseStructuredImages,generateStructuredImageTags,relevantImageRoles,str
 import {normalizeDynamicTag} from '../character-consistency.js';
 import {parseSopTag} from '../generation-sop.js';
 import {normalizeStoryboardCount,validateStoryboardImages} from '../storyboard.js';
+import {getTagGenerationChain,usesStructuredTagChain,setTagGenerationChain} from '../tag-chain-switch.js';
 const body='深雪走进书店。她拿起一本书。她走到柜台。';
 const settings={mode:'comfyui',llm_retry_count:2,characterPresets:{snow:{nameCN:'深雪'},other:{nameCN:'其他'}},characterEnablePresetId:'a',characterEnablePresets:{a:{characters:['snow','other']}}};
 const roles=relevantImageRoles(settings,body);
@@ -46,7 +47,7 @@ const start=source.indexOf('async function processImageLikeRequest(');
 const pipeline=source.slice(start,source.indexOf('var init_promptReq',start));
 const message={mes:body},context={chat:[message],chatMetadata:{variables:{}}};
 let inserted=[];
-const sandbox={generateStructuredImageTags,structuredImageMessages,relevantImageRoles,normalizeStoryboardCount,
+const sandbox={generateStructuredImageTags,structuredImageMessages,relevantImageRoles,normalizeStoryboardCount,getTagGenerationChain,usesStructuredTagChain,
  extension_settings40:{test:{...settings,storyboardEnabled:'true',storyboardImageCount:3,zidongdianji:'false'}},extensionName:'test',getContext12:()=>context,
  debugTimer:()=>({end(){}}),debugMilestone(){},debugLog(){},debugBranch(){},debugError(){},addLog(){},updateCombinedPrompt(){},
  toastr:{info(){},warning(x){throw Error(x);}},getElContext:async(_el,depth)=>{assert.equal(depth,1);return [body];},
@@ -56,4 +57,13 @@ vm.createContext(sandbox);vm.runInContext(pipeline,sandbox);
 const el={isConnected:true,closest:()=>({getAttribute:()=> '0',querySelector:()=>({textContent:''})})};
 await sandbox.processImageLikeRequest(el,'gesture1','image_gen','正文图片',async(messages,options)=>{assert(options.structuredTags);assert.equal(messages.length,2);return response(shots);},{autoReply:true,tagOnly:true});
 assert.equal(inserted.length,3);
+// A mid-request switch must not redirect repair attempts to the other parser.
+let routedCalls=0;
+await sandbox.processImageLikeRequest(el,'gesture1','image_gen','正文图片',async(_messages,options)=>{
+ assert(options.structuredTags);
+ if(++routedCalls===1){setTagGenerationChain('legacy');return response(shots.slice(0,1));}
+ return response(shots.slice(1));
+},{autoReply:true,tagOnly:true});
+assert.equal(routedCalls,2);assert.equal(inserted.length,3);
+setTagGenerationChain('structured');
 console.log('Structured tags: schema, role scoping, SOP conversion, partial repair, timeout, echo, stale target and production insertion passed.');

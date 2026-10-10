@@ -1,4 +1,5 @@
 import { createTagGenerationRunner, installTagGenerationRetry } from './tag-generation-retry.js';
+import { getTagGenerationChain, usesStructuredTagChain, mountTagChainSwitch } from './tag-chain-switch.js';
 import {generateStructuredImageTags,structuredImageMessages,relevantImageRoles} from './structured-image-tags.js';
 import {normalizeDynamicTag,enforceCharacterConsistency,validateConsistencySources,appearanceAttributes} from './character-consistency.js';
 import {filterComfyPresets,bindPresetAddress} from './comfy-preset-scope.js';
@@ -37931,8 +37932,8 @@ function LLM_EXECUTE(prompt2, { timeoutMs = 6e5 } = {}) {
     }, timeoutMs);
   });
 }
-function LLM_IMAGE_GEN(prompt2, { timeoutMs = 6e5, structuredTags = false } = {}) {
-  if(!structuredTags && extension_settings[extensionName]?.mode === "comfyui" && Array.isArray(prompt2)) prompt2=[...prompt2,{role:"system",content:buildSopLlmInstructions(extension_settings[extensionName],getSopStateSnapshot())}];
+function LLM_IMAGE_GEN(prompt2, { timeoutMs = 6e5, structuredTags = false, legacyTagChain = false } = {}) {
+  if(!structuredTags && !legacyTagChain && extension_settings[extensionName]?.mode === "comfyui" && Array.isArray(prompt2)) prompt2=[...prompt2,{role:"system",content:buildSopLlmInstructions(extension_settings[extensionName],getSopStateSnapshot())}];
   return new Promise((resolve, reject) => {
     const executeRequestId = generateRequestId7();
     const timer = debugTimer("llmRequest.LLM_IMAGE_GEN", "\u6B63\u6587\u56FE\u7247\u751F\u6210 LLM \u8BF7\u6C42");
@@ -39257,7 +39258,9 @@ async function handleImageToVideoGen(targetEl, imgElement, button, dialogContext
   }
 }
 async function processImageLikeRequest(el, gestureId, requestType, title, llmFunction, options = {}) {
-  const structuredTags = requestType === "image_gen" && extension_settings40[extensionName]?.mode === "comfyui";
+  const tagChain = getTagGenerationChain();
+  const structuredTags = usesStructuredTagChain(requestType, extension_settings40[extensionName], tagChain);
+  const legacyTagChain = requestType === "image_gen" && extension_settings40[extensionName]?.mode === "comfyui" && tagChain === "legacy";
   const storyboard = requestType === "image_gen" && options.autoReply === true && String(extension_settings40[extensionName]?.storyboardEnabled ?? "true") === "true";
   const storyboardCount = normalizeStoryboardCount(extension_settings40[extensionName]?.storyboardImageCount ?? 3);
   const targetMessageId = Number(el?.closest?.(".mes")?.getAttribute("mesid"));
@@ -39587,7 +39590,7 @@ async function processImageLikeRequest(el, gestureId, requestType, title, llmFun
     let llmResponse;
     try {
       if (!targetIsCurrent()) return;
-      llmResponse = await llmFunction(promt, { timeoutMs: 6e5 });
+      llmResponse = await llmFunction(promt, { timeoutMs: 6e5, legacyTagChain });
       if (!targetIsCurrent()) {
         toastr.info("聊天或回复已变化，已取消旧回复的分镜插入。");
         return;
@@ -113335,6 +113338,7 @@ function addNewElement() {
 
 
 // One-click character/outfit rematching; appended to the plugin bundle.
+mountTagChainSwitch({ notify: message => toastr.info(message) });
 installTagGenerationRetry({
   root: document.body,
   getMessage: id => getContext12()?.chat?.[id],
