@@ -1,5 +1,11 @@
+import { applySopOutfitPriority, isSopClothingTag } from './generation-sop-outfit.js';
+import { buildSopLlmInstructions } from './generation-sop-instructions.js';
+import { validateSopLoraFiles, resolveSopLoraBindings } from './generation-sop-validation.js';
+import { createStandardRegionalWorkflow, materializeSopWorkflow, resolveSopAddressSettings, parseSopTag } from './generation-sop.js';
+import { prepareSopGeneration, chooseSopFallback } from './generation-sop-runtime.js';
+import { resolveAmbiguousCharacterTags } from './sop-identity-ui.js';
 import { applyComfyClipSkip } from './comfy-clip-skip.js';
-import { migrateAddressLoras } from './character-lora.js';
+import { migrateAddressLoras, comfyAddressKey } from './character-lora.js';
 import { mountComfyAddressHistory } from './comfy-address-history.js';
 /**
  * ====================================================
@@ -22,7 +28,7 @@ import { mountComfyAddressHistory } from './comfy-address-history.js';
 import { normalizeStoryboardCount, buildStoryboardInstructions, validateStoryboardImages } from "./storyboard.js";
 import { mergePromptTags } from "./wardrobe-store.js";
 import { hasOutsideCharacterAppearance, prepareCharacterTags, appendCharacterLoras, applyCharacterLorasToWorkflow } from "./character-lora.js";
-import { initializeWardrobe, mountWardrobe, wardrobeOutfits, wardrobeSelectedOutfits } from "./wardrobe-ui.js";
+import { initializeWardrobe, mountWardrobe, wardrobeOutfits, wardrobeSelectedOutfits, getSopOutfitForRole } from "./wardrobe-ui.js";
 import { openOutfitVision } from "./outfit-vision.js";
 import { initializeCharacterSync, bindCharacterSyncControls, openCharacterSync } from "./character-sync.js";
 import { saveSettingsDebounced as saveSettingsDebounced2 } from "../../../../script.js";
@@ -33137,6 +33143,7 @@ function collectCharacterCandidates(inputName, characterPresets, characterIds) {
   for (const charId of characterIds) {
     const char = characterPresets[charId];
     if (!char) continue;
+    if (normalizeName(charId) === inputName) candidates.push({preset:char,score:2000+charId.length,matchedName:charId});
     if (char.nameEN || char.promptName) {
       const names = [char.nameEN, char.promptName].flatMap(value => String(value || "").split("|"));
       for (const name of names) {
@@ -37921,6 +37928,7 @@ function LLM_EXECUTE(prompt2, { timeoutMs = 6e5 } = {}) {
   });
 }
 function LLM_IMAGE_GEN(prompt2, { timeoutMs = 6e5 } = {}) {
+  if(extension_settings[extensionName]?.mode === "comfyui" && Array.isArray(prompt2)) prompt2=[...prompt2,{role:"system",content:buildSopLlmInstructions(extension_settings[extensionName])}];
   return new Promise((resolve, reject) => {
     const executeRequestId = generateRequestId7();
     const timer = debugTimer("llmRequest.LLM_IMAGE_GEN", "\u6B63\u6587\u56FE\u7247\u751F\u6210 LLM \u8BF7\u6C42");
@@ -47153,6 +47161,7 @@ async function replacepro(payload, json4) {
   return json4;
 }
 async function generateComfyUIImage({ prompt: link, width: Xwidth, height: Xheight, change, extraNegativePrompt, characterBody = "" }) {
+  const generationSettings=structuredClone(extension_settings49[extensionName]);
   clearLog();
   let taskType = TaskType.COMFYUI_IMG;
   let taskTypeName = "ComfyUI \u666E\u901A\u751F\u56FE";
@@ -47172,16 +47181,17 @@ async function generateComfyUIImage({ prompt: link, width: Xwidth, height: Xheig
     prompt: link
   });
   const abortController = new AbortController();
-  const configuredUrl = (extension_settings49[extensionName]?.comfyuiUrl || "http://localhost:8188").trim();
+  const configuredUrl = (generationSettings?.comfyuiUrl || "http://localhost:8188").trim();
   activeComfyuiTasks.set(taskId, {
     abortController,
     url: configuredUrl,
     promptId: null,
     startTime: Date.now()
   });
-  const maxConcurrency = Math.max(1, Math.min(10, parseInt(extension_settings49[extensionName]?.comfyui_max_concurrency, 10) || 10));
+  const maxConcurrency = Math.max(1, Math.min(10, parseInt(generationSettings?.comfyui_max_concurrency, 10) || 10));
   comfyuiConcurrencyLock.setMaxConcurrency(maxConcurrency);
   let lockAcquired = false;
+  try {
   await acquireComfyUILock(taskId, abortController.signal);
   lockAcquired = true;
   taskQueue.updateStatus(taskId, TaskStatus.RUNNING);
@@ -47202,7 +47212,7 @@ async function generateComfyUIImage({ prompt: link, width: Xwidth, height: Xheig
   if (typeof link === "string") {
     const match = link.match(sizeRegex);
     if (match) {
-      if (String(extension_settings49[extensionName].aiAutonomousResolution) !== "false") {
+      if (String(generationSettings.aiAutonomousResolution) !== "false") {
         Xwidth = parseInt(match[1], 10);
         Xheight = parseInt(match[2], 10);
       }
@@ -47212,30 +47222,32 @@ async function generateComfyUIImage({ prompt: link, width: Xwidth, height: Xheig
   if (typeof change === "string") {
     const match = change.match(sizeRegex);
     if (match) {
-      if (String(extension_settings49[extensionName].aiAutonomousResolution) !== "false") {
+      if (String(generationSettings.aiAutonomousResolution) !== "false") {
         Xwidth = parseInt(match[1], 10);
         Xheight = parseInt(match[2], 10);
       }
     }
     change = change.replace(sizeRegex, "");
   }
-  const characterSelection = prepareCharacterTags(change?.trim() ? change : link, extension_settings49[extensionName], characterBody);
+  const sopOriginalTag = change_ || link;
+  const sopIdentityTag = await resolveAmbiguousCharacterTags(sopOriginalTag, generationSettings);
+  const characterSelection = prepareCharacterTags(sopIdentityTag.replace(sizeRegex, ""), generationSettings, characterBody, {activeOnly:true});
   // Resolve only the selected tag, so an unused original cannot leak characters/negatives.
   if (change?.trim()) change = characterSelection.tag; else link = characterSelection.tag;
   const selectedCharacterPrompt = await stripChineseAnnotations(processCharacterPrompt(characterSelection.tag));
   if (change?.trim()) change = selectedCharacterPrompt; else link = selectedCharacterPrompt;
   if (characterSelection.characters.length) addLog(`[角色自动匹配] ${characterSelection.characters.join("、")}；LoRA：${characterSelection.bindings.map(x=>x.file).join("、") || "未绑定"}`);
-  addLog(`\u5F00\u59CB ComfyUI \u751F\u56FE\u6D41\u7A0B\u3002\u5BA2\u6237\u7AEF\u4E3A${extension_settings49[extensionName].client}`);
-  addLog(`\u8BF7\u6C42\u5DE5\u4F5C\u6D41id - ${extension_settings49[extensionName].workerid}`);
+  addLog(`\u5F00\u59CB ComfyUI \u751F\u56FE\u6D41\u7A0B\u3002\u5BA2\u6237\u7AEF\u4E3A${generationSettings.client}`);
+  addLog(`\u8BF7\u6C42\u5DE5\u4F5C\u6D41id - ${generationSettings.workerid}`);
   addLog(`\u8BF7\u6C42\u5C3A\u5BF8: \u5BBD\u5EA6 - ${Xwidth || "\u9ED8\u8BA4"}, \u9AD8\u5EA6 - ${Xheight || "\u9ED8\u8BA4"}`);
-  if (extension_settings49[extensionName].MODEL_NAME.trim() === "\u8FDE\u63A5\u540E\u9009\u62E9") {
+  if (generationSettings.MODEL_NAME.trim() === "\u8FDE\u63A5\u540E\u9009\u62E9") {
     addLog("\u8BF7\u586B\u5199ComfyUI\u6A21\u578B\u3002");
     toastr.error("\u8BF7\u586B\u5199ComfyUI\u6A21\u578B\u3002");
     taskQueue.completeTask(taskId, false);
     activeComfyuiTasks.delete(taskId);
     return;
   }
-  const url = extension_settings49[extensionName].comfyuiUrl.trim();
+  const url = generationSettings.comfyuiUrl.trim();
   const promptForGeneration = change && change.trim() !== "" ? change : link;
   addLog(`\u7528\u4E8E\u751F\u6210\u7684Tag: ${promptForGeneration}`);
   let Divide_roles = false;
@@ -47261,6 +47273,7 @@ async function generateComfyUIImage({ prompt: link, width: Xwidth, height: Xheig
     mainPrompt = deduplicateTags(promptForGeneration);
   }
   let { modifiedPrompt, insertions } = await prompt_replace(mainPrompt, other_prompt);
+  const sopScenePrompt = modifiedPrompt;
   if (Divide_roles) {
     const charIds = getSortedCharacterIds(prompt_data);
     for (const i of charIds) {
@@ -47270,22 +47283,59 @@ async function generateComfyUIImage({ prompt: link, width: Xwidth, height: Xheig
     }
   }
   const _comfyui_yushe_id = getRandomYusheId("yusheid_comfyui");
-  if (!extension_settings49[extensionName].yushe || !extension_settings49[extensionName].yushe[_comfyui_yushe_id]) {
+  if (!generationSettings.yushe || !generationSettings.yushe[_comfyui_yushe_id]) {
     toastr.error("\u672A\u80FD\u627E\u5230\u6240\u9009\u7684\u56FA\u5B9A\u63D0\u793A\u8BCD\u9884\u8BBE\u3002\u8BF7\u524D\u5F80\u63D2\u4EF6\u8BBE\u7F6E\u4E2D\u65B0\u5EFA\u6216\u9009\u62E9\u4E00\u4E2A\u56FA\u5B9A\u63D0\u793A\u8BCD\u3002", "ComfyUI \u751F\u56FE\u9519\u8BEF");
     taskQueue.completeTask(taskId, false);
     activeComfyuiTasks.delete(taskId);
     throw new Error("\u56FA\u5B9A\u63D0\u793A\u8BCD\u9884\u8BBE\u672A\u914D\u7F6E");
   }
-  const _comfyui_preset = extension_settings49[extensionName].yushe[_comfyui_yushe_id];
-  let prompt2 = await zhengmian(
-    _comfyui_preset.fixedPrompt,
-    modifiedPrompt,
-    _comfyui_preset.fixedPrompt_end,
-    extension_settings49[extensionName].AQT_comfyui,
-    insertions
-  );
-  prompt2 = appendCharacterLoras(prompt2, characterSelection.bindings);
-  const activeLoraWorkflow = /\{(?:ComfyUI)?局部重绘\}/.test(change) ? extension_settings49[extensionName].editWorker : extension_settings49[extensionName].worker;
+  let sopExpandedTag = modifiedPrompt;
+  if (Divide_roles) {
+    const expandedData = {...prompt_data, "Scene Composition":sopScenePrompt};
+    for (const id of getSortedCharacterIds(prompt_data)) {
+      expandedData[`Character ${id} Prompt`] = prompt_replace_for_character(
+        prompt_data[`Character ${id} Prompt`], (mainPrompt || "") + " " + (other_prompt || "")
+      );
+    }
+    sopExpandedTag = reconstructPromptString(expandedData);
+  }
+  const sopPlan = await prepareSopGeneration({
+    rawTag:sopOriginalTag, preparedTag:characterSelection.tag, expandedTag:sopExpandedTag,
+    settings:generationSettings, selection:characterSelection, scenePresetId:_comfyui_yushe_id
+  });
+  const preparedPeople=parseSopTag(characterSelection.tag).characters;
+  for(const person of sopPlan.characters){
+    if(!person.roleKey)continue;
+    let reference={};const ref=preparedPeople.find(p=>p.id===person.id)?.prompt.match(/\$([^$]+)\$/);
+    try{reference=JSON.parse(ref?.[1]||'{}');}catch{}
+    const wear=getSopOutfitForRole(person.roleKey,reference);
+    if(wear){person.prompt=applySopOutfitPriority(person.prompt,wear.prompt);person.outfit={outfitKey:wear.outfitKey,comboId:wear.comboId,source:wear.source};}
+  }
+  if(sopPlan.characters.some(p=>p.outfit)) sopPlan.scenePrompt=sopPlan.scenePrompt.split(',').filter(t=>!isSopClothingTag(t)).join(',');
+  sopPlan.positive=[sopPlan.scenePrompt,...sopPlan.characters.map(p=>p.prompt)].filter(Boolean).join(', ');
+  if(sopPlan.bindings.length || /<(?:lora|wlr):/i.test(sopPlan.positive+", "+sopPlan.negative)) {
+    const listResponse = generationSettings.client==='jiuguan'
+      ? await fetch('/api/sd/comfy/loras',{method:'POST',headers:getRequestHeaders(window.token),body:JSON.stringify({url}),signal:abortController.signal})
+      : await fetch(url.replace(/\/+$/,'')+'/object_info',{headers:getComfyUIHeaders(),signal:abortController.signal});
+    if(!listResponse.ok) throw new Error('当前 ComfyUI LoRA 文件列表读取失败，请连接刷新后重试。');
+    const catalog=await listResponse.json();
+    const files=generationSettings.client==='jiuguan'?catalog:catalog.LoraLoader?.input?.required?.lora_name?.[0];
+    validateSopLoraFiles(sopPlan,files);
+    sopPlan.bindings=resolveSopLoraBindings(sopPlan,files);
+    const actualNames=validateSopLoraFiles(sopPlan,files);
+    const normalizeInline=text=>String(text||'').replace(/<(lora|wlr):([^:>]+)(:[^>]*)?>/gi,(tag,kind,name,args)=>'<'+kind+':'+(actualNames.find(r=>r.requested===name)?.file||name)+(args||'')+'>');
+    sopPlan.scenePrompt=normalizeInline(sopPlan.scenePrompt);sopPlan.sceneNegative=normalizeInline(sopPlan.sceneNegative);
+    for(const person of sopPlan.characters){person.prompt=normalizeInline(person.prompt);person.negative=normalizeInline(person.negative);}
+    sopPlan.positive=[sopPlan.scenePrompt,...sopPlan.characters.map(p=>p.prompt)].filter(Boolean).join(', ');
+    sopPlan.negative=[sopPlan.sceneNegative,...sopPlan.characters.map(p=>p.negative)].filter(Boolean).join(', ');
+  }
+  for (const warning of sopPlan.warnings) { addLog(`[生图 SOP] ${warning}`); toastr.warning(warning); }
+  sopPlan.scenePrompt = await zhengmian("", sopPlan.scenePrompt, "", generationSettings.AQT_comfyui, insertions);
+  sopPlan.sceneNegative = await fumian(sopPlan.sceneNegative, generationSettings.UCP_comfyui);
+  if (extraNegativePrompt?.trim()) sopPlan.sceneNegative += ", " + extraNegativePrompt.trim();
+  let prompt2 = await zhengmian('', sopPlan.positive, '', generationSettings.AQT_comfyui, insertions);
+  prompt2 = appendCharacterLoras(prompt2, sopPlan.bindings);
+  const activeLoraWorkflow = /\{(?:ComfyUI)?局部重绘\}/.test(change) ? generationSettings.editWorker : sopPlan.workflow;
   prompt2 = replaceLoraTags(prompt2);
   function replaceLoraTags(input, addClipSkip = false) {
     const regex = /<lora:([^:>]+):([^>]+)>/g;
@@ -47294,7 +47344,7 @@ async function generateComfyUIImage({ prompt: link, width: Xwidth, height: Xheig
         return `<lora:${filename}:${paramStr}>`;
       }
       const params = paramStr.split(":");
-      if (isSettingTrue(extension_settings49[extensionName].weilin_lora_fix)) {
+      if (isSettingTrue(generationSettings.weilin_lora_fix)) {
         const p1 = params[0] || "1";
         const p2 = params[1] || "1";
         const p3 = params[2] || "1";
@@ -47323,22 +47373,14 @@ async function generateComfyUIImage({ prompt: link, width: Xwidth, height: Xheig
   }
   console.log("prompt", prompt2);
   addLog(`\u6B63\u9762\u63D0\u793A\u8BCD: ${prompt2} `);
-  let negative_prompt = await fumian(_comfyui_preset.negativePrompt, extension_settings49[extensionName].UCP_comfyui);
-  if (!Divide_roles && window.collectedCharacterNegatives) {
-    const characterNegatives = window.collectedCharacterNegatives.trim();
-    if (characterNegatives) {
-      negative_prompt = negative_prompt ? `${negative_prompt}, ${characterNegatives} ` : characterNegatives;
-      addLog(`[\u89D2\u8272\u8D1F\u9762] \u6DFB\u52A0\u89D2\u8272\u8D1F\u9762\u63D0\u793A\u8BCD: ${characterNegatives} `);
-      console.log("[ComfyUI] \u5408\u5E76\u89D2\u8272\u8D1F\u9762\u63D0\u793A\u8BCD:", characterNegatives);
-    }
-  }
+  let negative_prompt = await fumian(sopPlan.negative, generationSettings.UCP_comfyui);
   if (extraNegativePrompt && extraNegativePrompt.trim()) {
     const trimmedExtra = extraNegativePrompt.trim();
     negative_prompt = negative_prompt ? `${negative_prompt}, ${trimmedExtra} ` : trimmedExtra;
     addLog(`[\u667A\u7ED8\u59EC] \u6DFB\u52A0\u989D\u5916\u8D1F\u9762\u63D0\u793A\u8BCD: ${trimmedExtra} `);
     console.log("[ComfyUI] \u5408\u5E76\u667A\u7ED8\u59EC\u989D\u5916\u8D1F\u9762\u63D0\u793A\u8BCD:", trimmedExtra);
   }
-  if (extension_settings49[extensionName].worker.includes("WeiLinPromptUI")) {
+  if (activeLoraWorkflow.includes("WeiLinPromptUI")) {
     negative_prompt = replaceLoraTags(negative_prompt, true);
     negative_prompt = negative_prompt.replaceAll("<lora:", "<wlr:");
   } else {
@@ -47347,30 +47389,30 @@ async function generateComfyUIImage({ prompt: link, width: Xwidth, height: Xheig
   addLog(`\u8D1F\u9762\u63D0\u793A\u8BCD: ${negative_prompt} `);
   prompt2 = prompt2.replaceAll("\n", ",").replace(/,{2,}/g, ",");
   negative_prompt = negative_prompt.replaceAll("\n", ",").replace(/,{2,}/g, ",");
-  const normalizedModelName = normalizeBackslashPath(extension_settings49[extensionName].MODEL_NAME);
+  const normalizedModelName = normalizeBackslashPath(generationSettings.MODEL_NAME);
   let payload = {
     "prompt": prompt2,
     "negative_prompt": negative_prompt,
-    "steps": extension_settings49[extensionName].comfyui_steps,
-    "sampler_name": extension_settings49[extensionName].comfyuisamplerName,
-    "width": Xwidth ? Xwidth : extension_settings49[extensionName].comfyui_width,
-    "height": Xheight ? Xheight : extension_settings49[extensionName].comfyui_height,
-    "cfg_scale": extension_settings49[extensionName].cfg_comfyui,
-    "seed": extension_settings49[extensionName].comfyui_seed === 0 || extension_settings49[extensionName].comfyui_seed === "0" || extension_settings49[extensionName].comfyui_seed === "" || extension_settings49[extensionName].comfyui_seed === -1 || extension_settings49[extensionName].comfyui_seed === "-1" ? generateRandomSeed() : extension_settings49[extensionName].comfyui_seed,
+    "steps": generationSettings.comfyui_steps,
+    "sampler_name": generationSettings.comfyuisamplerName,
+    "width": Xwidth ? Xwidth : generationSettings.comfyui_width,
+    "height": Xheight ? Xheight : generationSettings.comfyui_height,
+    "cfg_scale": generationSettings.cfg_comfyui,
+    "seed": generationSettings.comfyui_seed === 0 || generationSettings.comfyui_seed === "0" || generationSettings.comfyui_seed === "" || generationSettings.comfyui_seed === -1 || generationSettings.comfyui_seed === "-1" ? generateRandomSeed() : generationSettings.comfyui_seed,
     "MODEL_NAME": normalizedModelName,
-    "c_quanzhong": extension_settings49[extensionName].c_quanzhong,
-    "c_idquanzhong": extension_settings49[extensionName].c_idquanzhong,
-    "c_xijie": extension_settings49[extensionName].c_xijie,
-    "c_fenwei": extension_settings49[extensionName].c_fenwei,
+    "c_quanzhong": generationSettings.c_quanzhong,
+    "c_idquanzhong": generationSettings.c_idquanzhong,
+    "c_xijie": generationSettings.c_xijie,
+    "c_fenwei": generationSettings.c_fenwei,
     "comfyuicankaotupian": window.comfyuicankaotupian,
-    "ipa": extension_settings49[extensionName].ipa,
-    "scheduler": normalizeSettingString(extension_settings49[extensionName].comfyui_scheduler),
-    "vae": normalizeSettingString(extension_settings49[extensionName].comfyui_vae),
-    "clip": normalizeSettingString(extension_settings49[extensionName].comfyuiCLIPName),
+    "ipa": generationSettings.ipa,
+    "scheduler": normalizeSettingString(generationSettings.comfyui_scheduler),
+    "vae": normalizeSettingString(generationSettings.comfyui_vae),
+    "clip": normalizeSettingString(generationSettings.comfyuiCLIPName),
     // 局部重绘参数（如果有）
     "inpaint_image": window.comfyuiInpaintImage || null,
     "inpaint_mask": window.comfyuiInpaintMask || null,
-    "inpaint_denoise": extension_settings49[extensionName].inpaint_denoise || "0.75",
+    "inpaint_denoise": generationSettings.inpaint_denoise || "0.75",
     "inpaint_positive": window.comfyuiInpaintPositivePrompt || "",
     "inpaint_negative": window.comfyuiInpaintNegativePrompt || ""
   };
@@ -47395,8 +47437,8 @@ Scheduler: ${payload.scheduler}
   const _comfy_gen_params = buildGenParams("ComfyUI", {
     model: payload.MODEL_NAME,
     yushe: _comfyui_yushe_id,
-    yusheRandom: isSettingTrue(extension_settings49[extensionName].randomYushe),
-    promptReplaceId: extension_settings49[extensionName].prompt_replace_id,
+    yusheRandom: isSettingTrue(generationSettings.randomYushe),
+    promptReplaceId: generationSettings.prompt_replace_id,
     resolvedPrompt: payload.prompt,
     negativePrompt: payload.negative_prompt,
     width: payload.width,
@@ -47405,12 +47447,13 @@ Scheduler: ${payload.scheduler}
     steps: payload.steps,
     sampler: payload.sampler_name,
     scheduler: payload.scheduler,
-    cfgScale: payload.cfg_scale
+    cfgScale: payload.cfg_scale,
+    generationSop: sopPlan.snapshot
   });
   const clientId = "533ef3a3-39c0-4e39-9ced-37d290f371f8";
-  let workflowToUse = extension_settings49[extensionName].worker;
+  let workflowToUse = sopPlan.workflow;
   if (change.includes("{ComfyUI\u5C40\u90E8\u91CD\u7ED8}") || change.includes("{\u5C40\u90E8\u91CD\u7ED8}")) {
-    workflowToUse = extension_settings49[extensionName].editWorker;
+    workflowToUse = generationSettings.editWorker;
   }
   try {
     const workflowObj = JSON.parse(workflowToUse);
@@ -47428,16 +47471,19 @@ Scheduler: ${payload.scheduler}
   } catch (e) {
     throw new Error(`ComfyUI \u5DE5\u4F5C\u6D41 JSON \u65E0\u6548: ${e.message}`);
   }
+  workflowToUse = JSON.stringify(materializeSopWorkflow(workflowToUse,sopPlan));
   payload = await replacepro(payload, workflowToUse);
-  payload = JSON.stringify({ client_id: clientId, prompt: applyComfyClipSkip(applyCharacterLorasToWorkflow(JSON.parse(payload), characterSelection.bindings), extension_settings49[extensionName].comfyui_clip_skip) });
+  const actualWorkflow = applyComfyClipSkip(applyCharacterLorasToWorkflow(JSON.parse(payload), sopPlan.bindings), generationSettings.comfyui_clip_skip);
+  _comfy_gen_params.generationSop = {...sopPlan.snapshot, scenePrompt:sopPlan.scenePrompt, sceneNegative:sopPlan.sceneNegative, characters:structuredClone(sopPlan.characters), bindings:structuredClone(sopPlan.bindings), warnings:[...sopPlan.warnings], actualWorkflow:structuredClone(actualWorkflow)};
+  payload = JSON.stringify({client_id:clientId,prompt:actualWorkflow});
   addLog(`\u53D1\u9001\u5230 ComfyUI \u7684\u6700\u7EC8 payload: ${payload} `);
-  try {
+    if (comfyAddressKey(extension_settings49[extensionName].comfyuiUrl)!==comfyAddressKey(url)) throw new Error("生成过程中 ComfyUI 地址已切换，请按当前配置重新生成。");
     if (!taskQueue.isTaskInQueue(taskId)) {
       addLog("\u6B63\u5F0F\u8BF7\u6C42\u524D\u68C0\u6D4B\u5230\u4EFB\u52A1\u5DF2\u88AB\u53D6\u6D88\u3002");
       throw new Error("\u4EFB\u52A1\u5DF2\u53D6\u6D88");
     }
     let imageUrl;
-    if (extension_settings49[extensionName].client === "jiuguan") {
+    if (generationSettings.client === "jiuguan") {
       const response = await fetch("/api/sd/comfy/generate", {
         method: "POST",
         body: JSON.stringify({
@@ -47492,7 +47538,7 @@ Scheduler: ${payload.scheduler}
       }
       addLog(`ComfyUI \u666E\u901A\u751F\u56FE\u5B8C\u6210\uFF0C\u8017\u65F6 ${duration} \u79D2`);
       console.log("format", format, "isVideo", isVideo);
-      if (String(extension_settings49[extensionName].convertToJpegStorage) === "true" && !isVideo) {
+      if (String(generationSettings.convertToJpegStorage) === "true" && !isVideo) {
         imageUrl = await convertImageToJpeg(imageUrl);
       }
       let finalFormat = format;
@@ -47522,7 +47568,7 @@ Scheduler: ${payload.scheduler}
       detectMultiGpu(url);
       let ii = 0;
       let mediaInfo = null;
-      const timeoutMs = (parseInt(extension_settings49[extensionName]?.comfyui_timeout, 10) || 1800) * 1e3;
+      const timeoutMs = (parseInt(generationSettings?.comfyui_timeout, 10) || 1800) * 1e3;
       while (true) {
         try {
           if (!taskQueue.isTaskInQueue(taskId) || abortController.signal.aborted) {
@@ -47661,7 +47707,7 @@ Scheduler: ${payload.scheduler}
               reader.onerror = reject;
               reader.readAsDataURL(blob);
             });
-            if (String(extension_settings49[extensionName].convertToJpegStorage) === "true") {
+            if (String(generationSettings.convertToJpegStorage) === "true") {
               if (!imageInfo.isVideo) {
                 imageUrl = await convertImageToJpeg(imageUrl);
               }
@@ -47696,7 +47742,7 @@ Scheduler: ${payload.scheduler}
     }
   } catch (error) {
     const rawMessage = error instanceof Error ? error.message : String(error);
-    const isAborted = rawMessage === "\u4EFB\u52A1\u5DF2\u53D6\u6D88" || abortController.signal.aborted || !taskQueue.isTaskInQueue(taskId);
+    const isAborted = error?.name === "AbortError" || rawMessage === "\u4EFB\u52A1\u5DF2\u53D6\u6D88" || abortController.signal.aborted || !taskQueue.isTaskInQueue(taskId);
     const propagatedMessage = rawMessage === "Failed to fetch" || rawMessage === "Load failed" ? `ComfyUI \u8BF7\u6C42\u5931\u8D25\uFF0C\u53EF\u80FD\u662F\u670D\u52A1\u4E0D\u53EF\u8FBE\u3001\u8DE8\u57DF\u3001\u4EE3\u7406\u5F02\u5E38\u6216\u8FD4\u56DE\u4E86\u65E0\u6548\u54CD\u5E94: ${rawMessage}` : rawMessage;
     if (isAborted) {
       toastr.info(`\u5DF2\u53D6\u6D88 ${taskTypeName}`);
@@ -108503,6 +108549,11 @@ var COMFYUI_PROFILE_KEYS = [
   "comfyui_scheduler",
   "comfyuiCLIPName",
   "comfyui_clip_skip",
+  "comfyui_public_person_preset",
+  "comfyui_multi_workflow",
+  "comfyui_multi_lora_mode",
+  "comfyui_region_preview",
+  "comfyui_sop_by_address",
   // 生成参数
   "comfyui_width",
   "comfyui_height",
@@ -110929,7 +110980,35 @@ async function initUI({ check_update: check_update2 }) {
       settings2.theme_id = "\u9ED8\u8BA4-\u767D\u5929";
     }
     applyTheme(settings2.themes[settings2.theme_id]);
-    const mainKeys = ["scriptEnabled", "helpTipsEnabled", "disablePluginToast", "newlineFixEnabled", "mode", "client", "displayMode", "heavyFrontendMode", "insertOriginalText", "dbclike", "collapseImage", "zidongdianji", "zidongdianji2", "longPressToEdit", "clickToPreview", "startTag", "endTag", "cache", "sdUrl", "st_chatu8_sd_auth", "comfyuiUrl", "comfyui_max_concurrency", "comfyui_timeout", "novelaiApi", "novelaisite", "novelaiOtherSite", "enableCloudQueue", "cloudQueueUrl", "cloudQueueGreeting", "showQueueGreeting", "novelaimode", "novelai_sampler", "Schedule", "nai3Scale", "cfg_rescale", "AI_use_coords", "sm", "dyn", "nai3Variety", "nai3Deceisp", "sd_cwidth", "sd_cheight", "sd_csteps", "sd_cseed", "sdCfgScale", "restoreFaces", "novelai_width", "novelai_height", "novelai_steps", "novelai_seed", "nai3VibeTransfer", "enableVibeGroupTransfer", "randomVibeGroup", "normalizeRefStrength", "InformationExtracted", "ReferenceStrength", "nai3CharRef", "nai3StylePerception", "comfyui_width", "comfyui_height", "comfyui_steps", "comfyui_seed", "cfg_comfyui", "comfyui_clip_skip", "worker", "ipa", "c_fenwei", "c_xijie", "c_quanzhong", "c_idquanzhong", "AQT_sd", "UCP_sd", "AQT_novelai", "UCP_novelai", "AQT_comfyui", "UCP_comfyui", "addFurryDataset", "sd_cupscale_factor", "sd_chires_fix", "sd_chires_steps", "sd_cdenoising_strength", "sd_cclip_skip", "sd_cadetailer", "worldBookEnabled", "ai_temperature", "ai_top_p", "ai_presence_penalty", "ai_frequency_penalty", "ai_stream", "ai_private", "ai_token", "vocabulary_search_startswith", "vocabulary_search_limit", "vocabulary_search_sort", "enablePregen", "autoLLMImageGen", "storyboardEnabled", "storyboardImageCount", "randomYushe", "aiAutonomousResolution", "videoChannel", "imageAlignment", "imageSizeScale", "imageGenInterval", "translation_system_prompt", "ai_test_system", "ai_test_user", "ai_test_output", "jiuguanchucun", "vibeJiuguanchucun", "convertToJpegStorage", "weilin_lora_fix"];
+    const sopKeys=['comfyui_public_person_preset','comfyui_multi_workflow','comfyui_multi_lora_mode','comfyui_region_preview'];
+    const saveSopAddress=()=>{
+      const addr=comfyAddressKey(settings2.comfyuiUrl);if(!addr)return;
+      if(!settings2.comfyui_sop_by_address)settings2.comfyui_sop_by_address={};
+      settings2.comfyui_sop_by_address[addr]=Object.fromEntries(sopKeys.map(key=>[key.replace('comfyui_',''),settings2[key]]));
+      saveSettingsDebounced71();
+    };
+    const refreshSopAddress=()=>{Object.assign(settings2,resolveSopAddressSettings(settings2));for(const key of sopKeys){const c=document.getElementById(key);if(c){if(c.type==='checkbox')c.checked=settings2[key]===true||settings2[key]==='true';else c.value=settings2[key]||'';}}};
+    document.getElementById('comfyuiUrl')?.addEventListener('change',()=>{settings2.comfyuiUrl=document.getElementById('comfyuiUrl').value;refreshSopAddress();});
+    const personPresetSelect=document.getElementById('comfyui_public_person_preset');
+    if(personPresetSelect){
+      personPresetSelect.replaceChildren(new Option('不添加人物补充词',''));
+      for(const id of Object.keys(settings2.yushe||{}))personPresetSelect.add(new Option(id,id));
+      if(settings2.comfyui_public_person_preset&&!settings2.yushe?.[settings2.comfyui_public_person_preset])personPresetSelect.add(new Option('已失效：'+settings2.comfyui_public_person_preset,settings2.comfyui_public_person_preset));
+      personPresetSelect.value=settings2.comfyui_public_person_preset||'';
+      personPresetSelect.onchange=()=>{settings2.comfyui_public_person_preset=personPresetSelect.value;saveSopAddress();};
+    }
+    for(const key of ['comfyui_multi_workflow','comfyui_multi_lora_mode','comfyui_region_preview']){
+      const control=document.getElementById(key);if(!control)continue;
+      control.addEventListener('change',()=>{settings2[key]=control.type==='checkbox'?control.checked:control.value;saveSopAddress();});
+    }
+    const templateButton=document.getElementById('comfyui_build_multi_workflow');
+    if(templateButton)templateButton.onclick=async()=>{
+      if(settings2.comfyui_multi_workflow&&!await chooseSopFallback('将替换已保存的双人工作流配置。','替换为标准分区模板'))return;
+      settings2.comfyui_multi_workflow=JSON.stringify(createStandardRegionalWorkflow(),null,2);
+      document.getElementById('comfyui_multi_workflow').value=settings2.comfyui_multi_workflow;saveSopAddress();
+    };
+    refreshSopAddress();
+    const mainKeys = ["scriptEnabled", "helpTipsEnabled", "disablePluginToast", "newlineFixEnabled", "mode", "client", "displayMode", "heavyFrontendMode", "insertOriginalText", "dbclike", "collapseImage", "zidongdianji", "zidongdianji2", "longPressToEdit", "clickToPreview", "startTag", "endTag", "cache", "sdUrl", "st_chatu8_sd_auth", "comfyuiUrl", "comfyui_max_concurrency", "comfyui_timeout", "novelaiApi", "novelaisite", "novelaiOtherSite", "enableCloudQueue", "cloudQueueUrl", "cloudQueueGreeting", "showQueueGreeting", "novelaimode", "novelai_sampler", "Schedule", "nai3Scale", "cfg_rescale", "AI_use_coords", "sm", "dyn", "nai3Variety", "nai3Deceisp", "sd_cwidth", "sd_cheight", "sd_csteps", "sd_cseed", "sdCfgScale", "restoreFaces", "novelai_width", "novelai_height", "novelai_steps", "novelai_seed", "nai3VibeTransfer", "enableVibeGroupTransfer", "randomVibeGroup", "normalizeRefStrength", "InformationExtracted", "ReferenceStrength", "nai3CharRef", "nai3StylePerception", "comfyui_width", "comfyui_height", "comfyui_steps", "comfyui_seed", "cfg_comfyui", "comfyui_clip_skip", "comfyui_multi_workflow", "comfyui_multi_lora_mode", "comfyui_region_preview", "worker", "ipa", "c_fenwei", "c_xijie", "c_quanzhong", "c_idquanzhong", "AQT_sd", "UCP_sd", "AQT_novelai", "UCP_novelai", "AQT_comfyui", "UCP_comfyui", "addFurryDataset", "sd_cupscale_factor", "sd_chires_fix", "sd_chires_steps", "sd_cdenoising_strength", "sd_cclip_skip", "sd_cadetailer", "worldBookEnabled", "ai_temperature", "ai_top_p", "ai_presence_penalty", "ai_frequency_penalty", "ai_stream", "ai_private", "ai_token", "vocabulary_search_startswith", "vocabulary_search_limit", "vocabulary_search_sort", "enablePregen", "autoLLMImageGen", "storyboardEnabled", "storyboardImageCount", "randomYushe", "aiAutonomousResolution", "videoChannel", "imageAlignment", "imageSizeScale", "imageGenInterval", "translation_system_prompt", "ai_test_system", "ai_test_user", "ai_test_output", "jiuguanchucun", "vibeJiuguanchucun", "convertToJpegStorage", "weilin_lora_fix"];
     mainKeys.forEach((key) => {
       const element = document.getElementById(key);
       if (element) {

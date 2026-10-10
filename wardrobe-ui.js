@@ -2,8 +2,9 @@ import { CHARACTER_DRAFT_FIELDS, buildCharacterDraftMessages, parseCharacterDraf
 import { enabledRoleLists, setRoleEnabled, mergePromptTags, paginateItems, deletionImpact, deleteLibraryItem, restoreLibraryItem, library, roleCombinations, bindCombination, unbindCombination, names, newId, scene, latestBody, validSource, resolveWear, applyWear, matchOutfits, selectedOutfitKeys, saveCover, parseCivitLink, civitGroups, importCivitGroups, chatKey } from './wardrobe-store.js';
 import { attachWikiLookup } from './role-wiki.js';
 import { mountCharacterLoraEditor } from './character-lora-ui.js';
-import { normalizeLoraBinding } from './character-lora.js';
+import { normalizeLoraBinding, comfyAddressKey } from './character-lora.js';
 import { openOutfitVision, requestOutfitVision } from './outfit-vision.js';
+import { expandSopResolvedOutfit } from './generation-sop-outfit.js';
 let deps, root, page='wizard', chosenRole='', chosenCombo='', filter='', jobs=new Map(), renderSerial=0, libraryPages={roles:1,outfits:1}, wizardStep=null, wearFilter='', wearPage=1, draftModes=new Map(), draftEnables=new Map(), bulkOutfits=new Map();
 const el=(tag,text='',cls='')=>{const n=document.createElement(tag);n.textContent=text;n.className=cls;return n;};
 const button=(text,fn)=>{const n=el('button',text,'menu_button');n.type='button';n.onclick=async()=>{n.disabled=true;try{await fn();}catch(e){if(e.name!=='AbortError')deps.notify(e.message);}finally{n.disabled=false;}};return n;};
@@ -58,6 +59,14 @@ export function initializeWardrobe(options){
 export function mountWardrobe(){root=document.getElementById('wardrobe-root');page='wizard';wizardStep=null;chosenCombo='';if(root)render();}
 export function wardrobeOutfits(character){const s=settings();if(!s.wardrobe?.enabled)return character.outfits||[];const w=library(s),r=Object.values(w.roles).find(r=>s.characterPresets?.[r.key]===character);const wear=r&&resolveWear(s,deps.getContext(),r.id);return wear?[wear.outfitKey]:[];}
 export function wardrobeSelectedOutfits(){return settings().wardrobe?.enabled?selectedOutfitKeys(settings(),deps.getContext()):null;}
+export function getSopOutfitForRole(roleKey, reference={}) {
+ if(!deps)return null;
+ const s=settings();if(!s.wardrobe?.enabled)return null;
+ const r=Object.values(library(s).roles).find(role=>role.key===roleKey);
+ const wear=r&&resolveWear(s,deps.getContext(),r.id);
+ if(!wear)return null;
+ return {roleId:r.id,outfitKey:wear.outfitKey,comboId:wear.comboId,source:wear.source?.default?'default':'chat',prompt:expandSopResolvedOutfit(wear.outfit,reference)};
+}
 function scan(roleId,notify=true){
  const s=settings(),w=library(s),ctx=deps.getContext(),body=latestBody(ctx);
  if(!body.text){if(notify)deps.notify('当前聊天还没有助手正文。');return;}
@@ -111,12 +120,31 @@ function render(){
    }
  }
 }
+function rolePromptState(s,role){
+ const address=comfyAddressKey(s.comfyuiUrl),id=role.promptPresetsByAddress?.[address],fallback=s.comfyui_public_person_preset;
+ if(id)return s.yushe?.[id]?`使用角色人物预设：${id}`:`角色人物预设失效：${id}（请重新选择）`;
+ if(fallback)return s.yushe?.[fallback]?`回退公共人物预设：${fallback}`:`公共人物预设失效：${fallback}（请到连接配置中修正）`;
+ return '回退公共人物预设：未设置补充词（仍使用公共画面词和角色资料）';
+}
+function mountRolePromptEditor(parent,s,role){
+ const group=el('fieldset','','wardrobe-lora-editor');group.append(el('legend','角色人物提示词预设'));
+ const address=comfyAddressKey(s.comfyuiUrl),byAddress=structuredClone(role.promptPresetsByAddress||{}),picker=field(group,'当前 ComfyUI 服务的预设','','select');
+ picker.add(new Option('未绑定，使用公共默认人物词',''));for(const id of Object.keys(s.yushe||{}))picker.add(new Option(id,id));
+ const selected=byAddress[address]||'';if(selected&&!s.yushe?.[selected])picker.add(new Option(selected+'（预设已不存在）',selected));picker.value=selected;
+ group.append(el('p','绑定地址：'+(address||'尚未设置 ComfyUI API 地址')));
+ group.append(el('p','这里只补充当前人物的正面词和负面词；公共画面词只加一次。服装由衣橱决定，模型、尺寸与工作流由连接配置决定。'));
+ const status=el('p');status.setAttribute('role','status');group.append(status);
+ const update=()=>{const draft={...role,promptPresetsByAddress:{...byAddress,[address]:picker.value}};status.textContent=rolePromptState(s,draft);};picker.onchange=update;update();parent.append(group);
+ return {readByAddress(){if(picker.value&&!address)throw Error('请先在 ComfyUI 连接配置中设置 API 地址，再绑定角色预设。');if(picker.value&&!s.yushe?.[picker.value])throw Error('角色人物提示词预设已不存在，请重新选择。');if(picker.value)byAddress[address]=picker.value;else delete byAddress[address];return byAddress;}};
+}
 function edit(type,id,targetRoleId=null){const s=settings(),w=library(s),record=w[type][id],presets=type==='roles'?s.characterPresets:s.outfitPresets,p=presets?.[record?.key]||{},d=dialog(type==='roles'?'角色资料':'服装资料');
  const users=type==='outfits'?Object.values(w.roles).filter(r=>roleCombinations(s,r.id).some(c=>c.outfitId===id)).map(r=>r.key):[];if(users.length)d.append(el('p',`这套服装被 ${users.join('、')} 使用；编辑共享资料会影响这些角色。若只想补充当前角色，可改名后点“复制为新款”。`));
  const cn=field(d,'中文名称 / 别名（用 | 分隔）',p.nameCN||record?.key||''),en=field(d,'英文名称 / 别名',p.nameEN||'');const promptName=type==='roles'?field(d,'生图名称（英文 / 罗马音，给 ComfyUI）',p.promptName||''):null;let wikiSource=p.wikiNameSource||null;if(promptName){d.append(el('p','名称 / 别名用于正文识别；生图名称单独注入提示词，可填写模型习惯的姓名顺序。'));attachWikiLookup(d,{nameInput:cn,aliasInput:cn,promptInput:promptName,signal:d.controller.signal,onApply:value=>{wikiSource=value;}});}const trigger=type==='outfits'?field(d,'LoRA 激活词（生图时加入）',p.loraTriggerWords??record?.civit?.activation??'','textarea'):null;const fields=type==='roles'?['characterTraits','facialFeatures','upperBodySFW','fullBodySFW']:['upperBody','fullBody','upperBodyBack','fullBodyBack'];const inputs=fields.map(k=>[k,field(d,({characterTraits:'固定特征',facialFeatures:'面部特征',upperBodySFW:'固定上半身',fullBodySFW:'固定下半身',upperBody:'上装提示词',fullBody:'下装 / 鞋袜提示词',upperBodyBack:'上装背面',fullBodyBack:'下装背面'})[k],p[k]||'','textarea')]);
+ const promptEditor=type==='roles'?mountRolePromptEditor(d,s,p):null;
  const loraEditor=type==='roles'?mountCharacterLoraEditor(d,p,()=>deps.getLoras?.(),()=>settings().comfyuiUrl):null;
  if(record?.civit)d.append(el('pre',JSON.stringify(record.civit,null,2)));
  const write=(copy)=>{const name=cn.value.trim();if(!name)throw Error('请填写名称。');const key=name.split('|')[0].trim();if(presets?.[key]&&(!record||key!==record.key))throw Error('同名资料已存在，请使用其他名称。');const next={...structuredClone(p),nameCN:name,nameEN:en.value.trim()};for(const [k,n]of inputs)next[k]=n.value.trim();if(type==='roles'){next.outfits||=[];next.promptName=promptName.value.trim();if(wikiSource)next.wikiNameSource=wikiSource;}else{next.loraTriggerWords=trigger.value.trim();next.photoImageIds||=[];next.photoPrompt=[next.upperBody,next.fullBody].filter(Boolean).join(', ');}
+ if(promptEditor)next.promptPresetsByAddress=promptEditor.readByAddress();
  if(loraEditor){next.loraBindingsByAddress=loraEditor.readByAddress();next.loraBindings=[];}
  const target=type==='roles'?(s.characterPresets ||= {}):(s.outfitPresets ||= {});target[key]=next;
  if(record&&!copy&&key!==record.key){const old=record.key;delete target[old];record.key=key;
@@ -258,7 +286,7 @@ function renderWizard(token){
    panel.append(el('h4','选择要配置的角色'));
    const picker=el('div','','wardrobe-toolbar wardrobe-role-picker');panel.append(picker);const role=field(picker,'选择角色','','select');picker.append(button('添加角色',()=>addRole()));role.add(new Option('请选择角色',''));for(const item of Object.values(w.roles))if(s.characterPresets?.[item.key])role.add(new Option((s.characterPresets[item.key].nameCN||item.key).split('|')[0],item.id));role.value=chosenRole;
    role.onchange=()=>{chosenRole=role.value;chosenCombo=resolveWear(s,ctx,chosenRole)?.comboId||'';wizardStep=chosenCombo?3:1;(w.ui ||= {}).lastRoleId=chosenRole;deps.save();render();};
-   if(p){const info=el('div','','wardrobe-person-summary'),thumb=el('div','◈','wardrobe-thumb');info.append(thumb);image(thumb,itemPhoto(p),token);const text=el('div');text.append(el('h4',(p.nameCN||r.key).split('|')[0]),el('p',`识别名称：${p.nameCN||r.key}${p.nameEN?' / '+p.nameEN:''}`),el('p',`生图名称：${p.promptName||'尚未填写，可在角色资料中查询 Wiki 或手填'}`));text.append(button('编辑角色资料',()=>edit('roles',r.id)));
+   if(p){const info=el('div','','wardrobe-person-summary'),thumb=el('div','◈','wardrobe-thumb');info.append(thumb);image(thumb,itemPhoto(p),token);const text=el('div');text.append(el('h4',(p.nameCN||r.key).split('|')[0]),el('p',`识别名称：${p.nameCN||r.key}${p.nameEN?' / '+p.nameEN:''}`),el('p',`生图名称：${p.promptName||'尚未填写，可在角色资料中查询 Wiki 或手填'}`));text.append(el('p',rolePromptState(s,p)),button('编辑角色资料',()=>edit('roles',r.id)));
      const lists=enabledRoleLists(s),active=lists[0].entries.some(entry=>entry.key===r.key),common=lists[1].entries.some(entry=>entry.key===r.key);
      text.append(el('p',`角色识别：${active?'已加入启用列表':common?'已加入通用列表':'尚未启用'}`));
      text.append(button(active?'取消角色启用':'启用角色',()=>{setRoleEnabled(s,r.key,!active);persist();}));info.append(text);panel.append(info);}

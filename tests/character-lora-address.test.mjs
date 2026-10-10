@@ -12,3 +12,7 @@ assert.equal(prepareCharacterTags('海梦, 1girl',settings).bindings[0].file,'ot
 settings.comfyuiUrl='http://localhost:8188';
 assert.equal(prepareCharacterTags('海梦, 1girl',settings).bindings[0].file,'marin.safetensors');
 console.log('Address migration, unconfigured server, independent bindings and switch-back passed.');
+
+const strictSettings={characterPresets:{inactive:{nameCN:"未启用",facialFeatures:"red hair"}},characterEnablePresets:{},characterCommonPresets:{}};
+assert(!prepareCharacterTags('${"name":"未启用","angle":"from front"}$',strictSettings,"",{activeOnly:true}).tag.includes("$"));
+assert(!prepareCharacterTags("$未启用-sfw-upperbody-sfw-lowerbody$",strictSettings,"",{activeOnly:true}).tag.includes("$"));

@@ -58,18 +58,19 @@ function cleanAppearance(text) {
   const masked = text.replace(/\$[^$]+\$/g, value => `@@ROLE${protectedReferences.push(value)-1}@@`);
   return masked.split(',').filter(token => !appearance.test(normal(token))).join(',').replace(/@@ROLE(\d+)@@/g, (_, index) => protectedReferences[Number(index)]);
 }
-export function prepareCharacterTags(tag, settings, body = '') {
+export function prepareCharacterTags(tag, settings, body = '', {activeOnly=false} = {}) {
   const roles = catalog(settings), matched = new Map();
   let text = String(tag || '');
-  // Existing structured/legacy references are authoritative, even outside the active list.
-  const all = Object.entries(settings.characterPresets || {}).map(([key, role]) => ({key, role, names: aliases(key, role)}));
+  // Other backends retain legacy references; SOP generation restricts identity to the enabled catalog.
+  const all = activeOnly ? roles : Object.entries(settings.characterPresets || {}).map(([key, role]) => ({key, role, names: aliases(key, role)}));
+  if(activeOnly) text=text.replace(/\$([^$]+)\$/g,(ref,content)=>{try{const value=JSON.parse(content);if(Object.hasOwn(value,'angle')&&!all.some(item=>item.names.some(alias=>normal(alias)===normal(value.name)))) return String(value.name||'original character');}catch{const legacy=content.match(/^(.*?)-(?:sfw|nsfw)-(?:upperbody|lowerbody)(?:-|$)/i);if(legacy&&!all.some(item=>item.names.some(alias=>normal(alias)===normal(legacy[1]))))return legacy[1];}return ref;});
   text.replace(/\$([^$]+)\$/g, (_, content) => {
     let name;
     try { const ref = JSON.parse(content); if (Object.hasOwn(ref, 'angle')) name = ref.name; } catch { if (/-(?:sfw|nsfw)-(?:upperbody|lowerbody)/i.test(content)) name = content.replace(/-(?:sfw|nsfw)-(?:upperbody|lowerbody)[\s\S]*$/i, ''); }
-    const item = name && lookup(name, all); if (item) matched.set(item.key, item);
+    const item = name && (all.find(item => item.key === name) || lookup(name, all)); if (item) matched.set(item.key, item);
     return _;
   });
-  const reference = item => '$' + JSON.stringify({name:item.role.nameCN?.split('|')[0] || item.role.nameEN?.split('|')[0] || item.key, angle:/from behind/i.test(text)?'from behind':'from front', upperBody:'sfw', lowerBody:'sfw'}) + '$';
+  const reference = item => '$' + JSON.stringify({name:item.key, angle:/from behind/i.test(text)?'from behind':'from front', upperBody:'sfw', lowerBody:'sfw'}) + '$';
   // Match whole comma-delimited tags; never replace name fragments inside action tags.
   const protectedTags = [];
   text = text.replace(/\$[^$]+\$/g, value => `@@REF${protectedTags.push(value)-1}@@`).replace(/[^,\n;|]+/g, token => {

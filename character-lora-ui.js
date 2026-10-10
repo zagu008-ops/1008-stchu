@@ -1,6 +1,6 @@
 import { normalizeLoraBinding, comfyAddressKey, addressLoras } from './character-lora.js';
 export function openComfyConnectionSettings(parent) {
-  const link = document.querySelector('.st-chatu8-nav-link[data-tab="comfyui"]');
+  const link = document.querySelector('.st-chatu8-nav-link[data-tab="comfyui_connection"]');
   const target = document.getElementById('comfyuiUrl');
   if (!link || !target) throw Error('ComfyUI 设置尚未加载，请先打开插件设置。');
   const dialog = parent.closest('dialog');
