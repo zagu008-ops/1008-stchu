@@ -1,3 +1,4 @@
+import {filterComfyPresets,bindPresetAddress} from './comfy-preset-scope.js';
 import { applySopOutfitPriority, isSopClothingTag } from './generation-sop-outfit.js';
 import { buildSopLlmInstructions } from './generation-sop-instructions.js';
 import { validateSopLoraFiles, resolveSopLoraBindings } from './generation-sop-validation.js';
@@ -88652,6 +88653,32 @@ function initPromptSettings(settingsModal, settings3) {
     }
   });
 }
+var comfyPresetLoraRequests = new Map();
+async function readComfyPresetLoras(config) {
+      init_configDatabase();
+      const url = (document.getElementById("comfyuiUrl")?.value || config.comfyuiUrl || "").trim().replace(/\/+$/, "");
+      if (!url) throw new Error("请先配置 ComfyUI API 地址。");
+      const key=comfyAddressKey(url)+':'+config.client;
+      const cached=comfyPresetLoraRequests.get(key);
+      if(cached&&Date.now()-cached.time<60000)return cached.promise;
+      const promise=(async()=>{
+      const response = config.client === "jiuguan"
+        ? await fetch("/api/sd/comfy/loras", {method:"POST",headers:getRequestHeaders(window.token),body:JSON.stringify({url}),signal:AbortSignal.timeout(15000)})
+        : await fetch(url + "/object_info", {signal:AbortSignal.timeout(15000)});
+      if (!response.ok) throw new Error(`读取 ComfyUI LoRA 列表失败（HTTP ${response.status}），请检查连接。`);
+      const data = await response.json();
+      const names = Array.isArray(data) ? data : Object.values(data).flatMap(node => {
+        const list = node?.input?.required?.lora_name?.[0] ?? node?.input?.optional?.lora_name?.[0];
+        return Array.isArray(list) ? list.filter(name => typeof name === "string") : [];
+      });
+      const loras = [...new Set(names)].sort();
+      await saveComfyuiCache("loras", loras);
+      return loras;
+      })();
+      comfyPresetLoraRequests.set(key,{time:Date.now(),promise});
+      try{return await promise;}catch(error){comfyPresetLoraRequests.delete(key);throw error;}
+}
+
 function st_chatu8_tishici_change(mode, settings3) {
   const suffix = getSuffix(mode);
   const selectElement = document.getElementById("yusheid" + suffix);
@@ -88703,6 +88730,7 @@ function st_chatu8_tishici_new(mode, settings3) {
         return;
       }
       settings3.yushe[newName] = { fixedPrompt: "", fixedPrompt_end: "", negativePrompt: "" };
+      if(mode === "comfyui") bindPresetAddress(settings3,newName,settings3.comfyuiUrl);
       settings3[yusheIdKey] = newName;
       saveSettingsDebounced41();
       window.loadSilterTavernChatu8Settings();
@@ -88743,6 +88771,7 @@ function st_chatu8_tishici_save(mode, settings3) {
       const yusheIdKey = `yusheid${mode === "sd" ? "_sd" : suffix}`;
       settings3.yushe[result] = { ...settings3.yushe[result] || {}, "fixedPrompt": fixedPrompt, "fixedPrompt_end": fixedPrompt_end, "negativePrompt": negativePrompt };
       settings3[yusheIdKey] = result;
+      if(mode === "comfyui") bindPresetAddress(settings3,result,settings3.comfyuiUrl);
       saveSettingsDebounced41();
       window.loadSilterTavernChatu8Settings();
       alert(`\u9884\u8BBE "${result}" \u5DF2\u4FDD\u5B58\u3002`);
@@ -88763,6 +88792,7 @@ function st_chatu8_tishici_update(mode, settings3) {
       const fixedPrompt_end = document.getElementById("fixedPrompt_end" + suffix).value;
       const negativePrompt = document.getElementById("negativePrompt" + suffix).value;
       settings3.yushe[presetName] = { ...settings3.yushe[presetName], "fixedPrompt": fixedPrompt, "fixedPrompt_end": fixedPrompt_end, "negativePrompt": negativePrompt };
+      if(mode === "comfyui") bindPresetAddress(settings3,presetName,settings3.comfyuiUrl);
       saveSettingsDebounced41();
       const fields = ["fixedPrompt", "fixedPrompt_end", "negativePrompt"];
       fields.forEach((field) => {
@@ -110989,13 +111019,27 @@ async function initUI({ check_update: check_update2 }) {
     };
     const refreshSopAddress=()=>{Object.assign(settings2,resolveSopAddressSettings(settings2));for(const key of sopKeys){const c=document.getElementById(key);if(c){if(c.type==='checkbox')c.checked=settings2[key]===true||settings2[key]==='true';else c.value=settings2[key]||'';}}};
     document.getElementById('comfyuiUrl')?.addEventListener('change',()=>{settings2.comfyuiUrl=document.getElementById('comfyuiUrl').value;refreshSopAddress();});
+    refreshSopAddress();
     const personPresetSelect=document.getElementById('comfyui_public_person_preset');
-    if(personPresetSelect){
+    let personFiles,showUnassignedPresets=false;
+    const renderPersonPresets=()=>{
+      if(!personPresetSelect)return;
+      const value=settings2.comfyui_public_person_preset||'',result=filterComfyPresets(settings2,settings2.comfyuiUrl,{files:personFiles,includeUnassigned:showUnassignedPresets});
       personPresetSelect.replaceChildren(new Option('不添加人物补充词',''));
-      for(const id of Object.keys(settings2.yushe||{}))personPresetSelect.add(new Option(id,id));
-      if(settings2.comfyui_public_person_preset&&!settings2.yushe?.[settings2.comfyui_public_person_preset])personPresetSelect.add(new Option('已失效：'+settings2.comfyui_public_person_preset,settings2.comfyui_public_person_preset));
-      personPresetSelect.value=settings2.comfyui_public_person_preset||'';
-      personPresetSelect.onchange=()=>{settings2.comfyui_public_person_preset=personPresetSelect.value;saveSopAddress();};
+      for(const item of result.visible)personPresetSelect.add(new Option(item.id+(item.reason==='unassigned'?'（未归属）':item.reason==='compatible'?'（LoRA 可用）':''),item.id));
+      if(value&&!result.visible.some(item=>item.id===value))personPresetSelect.add(new Option(value+'（当前绑定，未在过滤列表）',value));
+      personPresetSelect.value=value;
+    };
+    const loadPersonPresets=async()=>{
+      const address=comfyAddressKey(settings2.comfyuiUrl);personFiles=undefined;renderPersonPresets();
+      try{const files=await readComfyPresetLoras(settings2);if(comfyAddressKey(settings2.comfyuiUrl)!==address)return;personFiles=files;renderPersonPresets();}catch{/* Address filtering remains available when the service is offline. */}
+    };
+    if(personPresetSelect){
+      const toggle=document.createElement('input');toggle.type='checkbox';const label=document.createElement('label');label.append(toggle,' 显示未归属地址的旧预设');personPresetSelect.parentElement.append(label);
+      toggle.onchange=()=>{showUnassignedPresets=toggle.checked;renderPersonPresets();};
+      personPresetSelect.onchange=()=>{settings2.comfyui_public_person_preset=personPresetSelect.value;bindPresetAddress(settings2,personPresetSelect.value,settings2.comfyuiUrl);saveSopAddress();};
+      document.getElementById('comfyuiUrl')?.addEventListener('change',loadPersonPresets);
+      loadPersonPresets();
     }
     for(const key of ['comfyui_multi_workflow','comfyui_multi_lora_mode','comfyui_region_preview']){
       const control=document.getElementById(key);if(!control)continue;
@@ -111007,7 +111051,6 @@ async function initUI({ check_update: check_update2 }) {
       settings2.comfyui_multi_workflow=JSON.stringify(createStandardRegionalWorkflow(),null,2);
       document.getElementById('comfyui_multi_workflow').value=settings2.comfyui_multi_workflow;saveSopAddress();
     };
-    refreshSopAddress();
     const mainKeys = ["scriptEnabled", "helpTipsEnabled", "disablePluginToast", "newlineFixEnabled", "mode", "client", "displayMode", "heavyFrontendMode", "insertOriginalText", "dbclike", "collapseImage", "zidongdianji", "zidongdianji2", "longPressToEdit", "clickToPreview", "startTag", "endTag", "cache", "sdUrl", "st_chatu8_sd_auth", "comfyuiUrl", "comfyui_max_concurrency", "comfyui_timeout", "novelaiApi", "novelaisite", "novelaiOtherSite", "enableCloudQueue", "cloudQueueUrl", "cloudQueueGreeting", "showQueueGreeting", "novelaimode", "novelai_sampler", "Schedule", "nai3Scale", "cfg_rescale", "AI_use_coords", "sm", "dyn", "nai3Variety", "nai3Deceisp", "sd_cwidth", "sd_cheight", "sd_csteps", "sd_cseed", "sdCfgScale", "restoreFaces", "novelai_width", "novelai_height", "novelai_steps", "novelai_seed", "nai3VibeTransfer", "enableVibeGroupTransfer", "randomVibeGroup", "normalizeRefStrength", "InformationExtracted", "ReferenceStrength", "nai3CharRef", "nai3StylePerception", "comfyui_width", "comfyui_height", "comfyui_steps", "comfyui_seed", "cfg_comfyui", "comfyui_clip_skip", "comfyui_multi_workflow", "comfyui_multi_lora_mode", "comfyui_region_preview", "worker", "ipa", "c_fenwei", "c_xijie", "c_quanzhong", "c_idquanzhong", "AQT_sd", "UCP_sd", "AQT_novelai", "UCP_novelai", "AQT_comfyui", "UCP_comfyui", "addFurryDataset", "sd_cupscale_factor", "sd_chires_fix", "sd_chires_steps", "sd_cdenoising_strength", "sd_cclip_skip", "sd_cadetailer", "worldBookEnabled", "ai_temperature", "ai_top_p", "ai_presence_penalty", "ai_frequency_penalty", "ai_stream", "ai_private", "ai_token", "vocabulary_search_startswith", "vocabulary_search_limit", "vocabulary_search_sort", "enablePregen", "autoLLMImageGen", "storyboardEnabled", "storyboardImageCount", "randomYushe", "aiAutonomousResolution", "videoChannel", "imageAlignment", "imageSizeScale", "imageGenInterval", "translation_system_prompt", "ai_test_system", "ai_test_user", "ai_test_output", "jiuguanchucun", "vibeJiuguanchucun", "convertToJpegStorage", "weilin_lora_fix"];
     mainKeys.forEach((key) => {
       const element = document.getElementById(key);
@@ -113122,24 +113165,7 @@ async function main() {
   saveSettingsDebounced72();
   initializeWardrobe({
     getSettings: () => extension_settings116[extensionName], getContext,
-    getLoras: async () => {
-      init_configDatabase();
-      const config = extension_settings116[extensionName];
-      const url = (document.getElementById("comfyuiUrl")?.value || config.comfyuiUrl || "").trim().replace(/\/+$/, "");
-      if (!url) throw new Error("请先配置 ComfyUI API 地址。");
-      const response = config.client === "jiuguan"
-        ? await fetch("/api/sd/comfy/loras", {method:"POST",headers:getRequestHeaders(window.token),body:JSON.stringify({url}),signal:AbortSignal.timeout(15000)})
-        : await fetch(url + "/object_info", {signal:AbortSignal.timeout(15000)});
-      if (!response.ok) throw new Error(`读取 ComfyUI LoRA 列表失败（HTTP ${response.status}），请检查连接。`);
-      const data = await response.json();
-      const names = Array.isArray(data) ? data : Object.values(data).flatMap(node => {
-        const list = node?.input?.required?.lora_name?.[0] ?? node?.input?.optional?.lora_name?.[0];
-        return Array.isArray(list) ? list.filter(name => typeof name === "string") : [];
-      });
-      const loras = [...new Set(names)].sort();
-      await saveComfyuiCache("loras", loras);
-      return loras;
-    },
+    getLoras: () => readComfyPresetLoras(extension_settings116[extensionName]),
     events: eventSource, eventTypes: event_types, save: saveSettingsDebounced72,
     notify: (message, success) => success ? toastr.success(message) : toastr.warning(message),
     getImage: async id => { init_configDatabase(); return getConfigImage(id); },

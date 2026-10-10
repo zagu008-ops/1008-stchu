@@ -1,3 +1,4 @@
+import {filterComfyPresets,bindPresetAddress} from './comfy-preset-scope.js';
 import { CHARACTER_DRAFT_FIELDS, buildCharacterDraftMessages, parseCharacterDraft } from './character-draft.js';
 import { enabledRoleLists, setRoleEnabled, mergePromptTags, paginateItems, deletionImpact, deleteLibraryItem, restoreLibraryItem, library, roleCombinations, bindCombination, unbindCombination, names, newId, scene, latestBody, validSource, resolveWear, applyWear, matchOutfits, selectedOutfitKeys, saveCover, parseCivitLink, civitGroups, importCivitGroups, chatKey } from './wardrobe-store.js';
 import { attachWikiLookup } from './role-wiki.js';
@@ -129,13 +130,29 @@ function rolePromptState(s,role){
 function mountRolePromptEditor(parent,s,role){
  const group=el('fieldset','','wardrobe-lora-editor');group.append(el('legend','角色人物提示词预设'));
  const address=comfyAddressKey(s.comfyuiUrl),byAddress=structuredClone(role.promptPresetsByAddress||{}),picker=field(group,'当前 ComfyUI 服务的预设','','select');
- picker.add(new Option('未绑定，使用公共默认人物词',''));for(const id of Object.keys(s.yushe||{}))picker.add(new Option(id,id));
- const selected=byAddress[address]||'';if(selected&&!s.yushe?.[selected])picker.add(new Option(selected+'（预设已不存在）',selected));picker.value=selected;
+ const selected=byAddress[address]||'';
+ let files,includeUnassigned=false;
+ const filterNote=el('p');filterNote.setAttribute('role','status');
+ const showUnassigned=el('input');showUnassigned.type='checkbox';
+ const showLabel=el('label',' 显示未归属地址的旧预设');showLabel.prepend(showUnassigned);
+ const refresh=()=>{
+   const value=picker.options.length?picker.value:selected,result=filterComfyPresets(s,address,{files,includeUnassigned});
+   picker.replaceChildren(new Option('未绑定，使用公共默认人物词',''));
+   for(const item of result.visible)picker.add(new Option(item.id+(item.reason==='unassigned'?'（未归属）':item.reason==='compatible'?'（LoRA 可用）':''),item.id));
+   if(value&&!result.visible.some(item=>item.id===value))picker.add(new Option(value+(s.yushe?.[value]?'（当前绑定，未在过滤列表）':'（预设已不存在）'),value));
+   picker.value=value;
+   filterNote.textContent=`当前地址可选 ${result.visible.length} 个，已过滤 ${result.hidden.length} 个。`+(files?'':'未归属预设将在读取当前服务 LoRA 列表后进一步筛选。');
+ };
+ showUnassigned.onchange=()=>{includeUnassigned=showUnassigned.checked;refresh();};group.append(showLabel,filterNote);refresh();
+ Promise.resolve().then(()=>deps.getLoras?.()).then(result=>{
+   if(!picker.isConnected||comfyAddressKey(settings().comfyuiUrl)!==address)return;
+   files=Array.isArray(result)?result:undefined;refresh();
+ }).catch(()=>{if(picker.isConnected)filterNote.textContent+=' LoRA 列表读取失败，保留地址过滤；可勾选查看未归属预设。';});
  group.append(el('p','绑定地址：'+(address||'尚未设置 ComfyUI API 地址')));
  group.append(el('p','这里只补充当前人物的正面词和负面词；公共画面词只加一次。服装由衣橱决定，模型、尺寸与工作流由连接配置决定。'));
  const status=el('p');status.setAttribute('role','status');group.append(status);
  const update=()=>{const draft={...role,promptPresetsByAddress:{...byAddress,[address]:picker.value}};status.textContent=rolePromptState(s,draft);};picker.onchange=update;update();parent.append(group);
- return {readByAddress(){if(picker.value&&!address)throw Error('请先在 ComfyUI 连接配置中设置 API 地址，再绑定角色预设。');if(picker.value&&!s.yushe?.[picker.value])throw Error('角色人物提示词预设已不存在，请重新选择。');if(picker.value)byAddress[address]=picker.value;else delete byAddress[address];return byAddress;}};
+ return {readByAddress(){if(picker.value&&!address)throw Error('请先在 ComfyUI 连接配置中设置 API 地址，再绑定角色预设。');if(picker.value&&!s.yushe?.[picker.value])throw Error('角色人物提示词预设已不存在，请重新选择。');if(picker.value){byAddress[address]=picker.value;bindPresetAddress(s,picker.value,address);}else delete byAddress[address];return byAddress;}};
 }
 function edit(type,id,targetRoleId=null){const s=settings(),w=library(s),record=w[type][id],presets=type==='roles'?s.characterPresets:s.outfitPresets,p=presets?.[record?.key]||{},d=dialog(type==='roles'?'角色资料':'服装资料');
  const users=type==='outfits'?Object.values(w.roles).filter(r=>roleCombinations(s,r.id).some(c=>c.outfitId===id)).map(r=>r.key):[];if(users.length)d.append(el('p',`这套服装被 ${users.join('、')} 使用；编辑共享资料会影响这些角色。若只想补充当前角色，可改名后点“复制为新款”。`));
