@@ -1,6 +1,6 @@
 import { createTagGenerationRunner, installTagGenerationRetry } from './tag-generation-retry.js';
 import {generateStructuredImageTags,structuredImageMessages,relevantImageRoles} from './structured-image-tags.js';
-import {normalizeDynamicTag,enforceCharacterConsistency,validateConsistencySources} from './character-consistency.js';
+import {normalizeDynamicTag,enforceCharacterConsistency,validateConsistencySources,appearanceAttributes} from './character-consistency.js';
 import {filterComfyPresets,bindPresetAddress} from './comfy-preset-scope.js';
 import { applySopOutfitPriority, isSopClothingTag } from './generation-sop-outfit.js';
 import { buildSopLlmInstructions } from './generation-sop-instructions.js';
@@ -31,7 +31,7 @@ import { mountComfyAddressHistory } from './comfy-address-history.js';
  */
 import { normalizeStoryboardCount, buildStoryboardInstructions, validateStoryboardImages } from "./storyboard.js";
 import { mergePromptTags } from "./wardrobe-store.js";
-import { hasOutsideCharacterAppearance, prepareCharacterTags, appendCharacterLoras, applyCharacterLorasToWorkflow } from "./character-lora.js";
+import { hasOutsideCharacterAppearance, isCharacterAppearanceTag, prepareCharacterTags, appendCharacterLoras, applyCharacterLorasToWorkflow } from "./character-lora.js";
 import { initializeWardrobe, mountWardrobe, wardrobeOutfits, wardrobeSelectedOutfits, getSopOutfitForRole, getSopStateSnapshot, processSopChangeCandidates } from "./wardrobe-ui.js";
 import { openOutfitVision } from "./outfit-vision.js";
 import { initializeCharacterSync, bindCharacterSyncControls, openCharacterSync } from "./character-sync.js";
@@ -40244,7 +40244,7 @@ async function handleTagModifyRequest(el, currentTag, inputEl, originalTag = nul
       attempt++;
     }
     if (newTag) {
-      if (options.validateTag) options.validateTag(newTag);
+      if (options.validateTag) newTag = options.validateTag(newTag) || newTag;
       const formatted = newTag.trim().replace(/\n/g, "\\n");
       const targetOriginalTag = originalTag || button && button.dataset?.link || currentTag;
       if (targetOriginalTag) {
@@ -113405,10 +113405,18 @@ function validateCharacterRematchTag(tag, originalTag, catalog) {
   }
   const sizes = originalTag.match(/\b\d{2,4}x\d{2,4}\b/gi) || [];
   if (sizes.some(size => !tag.includes(size))) throw new Error("返回 tag 改动了图片尺寸，已保留原 tag。");
-  const outsideReferences = tag.replace(/\$[^$]+\$/g, "");
-  if (hasOutsideCharacterAppearance(outsideReferences)) {
-    throw new Error("返回 tag 仍包含预设外的发型或瞳色，请重试；已保留原 tag。");
-  }
+  const used=catalog.filter(c=>characters.has(c.id));
+  const locks=used.map(c=>Object.assign({},...[c.traits,c.facial,c.upper,c.lower].join(',').split(',').map(appearanceAttributes)));
+  const refs=[];let cleaned=tag.replace(/\$[^$]+\$/g,ref=>'@@KEEP'+(refs.push(ref)-1)+'@@');
+  cleaned=cleaned.split(/([,;\n|])/).filter(token=>{
+    const prefix=token.match(/^\s*Character \d+ Prompt:\s*/i)?.[0]||'';const value=token.slice(prefix.length).trim();
+    if(!isCharacterAppearanceTag(value))return true;
+    const attrs=appearanceAttributes(value);
+    for(const [key,v] of Object.entries(attrs))if(locks.some(l=>key in l)&&!locks.some(l=>l[key]===v))throw Error('返回外貌与已匹配角色冲突：'+value+'；已保留原 tag。');
+    return false;
+  }).join('').replace(/@@KEEP(\d+)@@/g,(_,i)=>refs[Number(i)]);
+  return cleaned;
+
 }
 function attachCharacterRematchButton(generateButton) {
   if (generateButton.__characterRematchButton) return;
@@ -113455,7 +113463,7 @@ function attachCharacterRematchButton(generateButton) {
       if (typeof prepareCharacterTags === "function") {
         const prepared = prepareCharacterTags(originalTag, settings);
         if (prepared.characters.length && prepared.tag !== originalTag) {
-          validateCharacterRematchTag(prepared.tag, originalTag, catalog);
+          prepared.tag=validateCharacterRematchTag(prepared.tag, originalTag, catalog);
           const formatted = prepared.tag.trim().replace(/\n/g, "\\n");
           await updateItemImgChange(generateButton.dataset.link || originalTag, formatted);
           generateButton.dataset.change = formatted;

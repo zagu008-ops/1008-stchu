@@ -1,4 +1,5 @@
-import {hasOutsideCharacterAppearance} from '../character-lora.js';
+import {appearanceAttributes} from '../character-consistency.js';
+import {hasOutsideCharacterAppearance,isCharacterAppearanceTag} from '../character-lora.js';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import assert from 'node:assert/strict';
@@ -9,7 +10,7 @@ const functionEnd = patched.indexOf('\nvar init_tagModify', functionStart);
 const settings = {
   characterEnablePresetId: 'current', characterEnablePresets: {current: {characters: ['star', {characterPresetName: 'snow'}]}},
   characterPresets: {
-    star: {nameCN:'星野遥|星野瑶', nameEN:'Hoshino Haruka', outfits:['uniform']},
+    star: {nameCN:'星野遥|星野瑶', nameEN:'Hoshino Haruka', facialFeatures:'silver hair, blue eyes', outfits:['uniform']},
     snow: {nameCN:'司波深雪', nameEN:'shiba miyuki', outfits:[]},
     other: {nameCN:'无关角色'}
   },
@@ -17,7 +18,7 @@ const settings = {
 };
 let writes = [], notices = [], popupCalls = 0, responseTag = '';
 const ctx = vm.createContext({
-  console, hasOutsideCharacterAppearance, extensionName:'st-chatu8', extension_settings:{'st-chatu8':settings},
+  console, hasOutsideCharacterAppearance,isCharacterAppearanceTag,appearanceAttributes, extensionName:'st-chatu8', extension_settings:{'st-chatu8':settings},
   extension_settings41:{'st-chatu8':{}},
   showTagModifyDemandPopup:async()=>{popupCalls++;return null;},
   getElContext:async()=>['星野瑶坐在长椅上拿饮料'], processWorldBooksWithTrigger:async()=>'',
@@ -39,6 +40,7 @@ const snow = '${"name":"司波深雪","angle":"from side","upperBody":"sfw","low
 const original = '1girl, orange_hair, holding drink, rooftop, 832x1216';
 const good = `1girl, ${star}, holding drink, rooftop, 832x1216`;
 ctx.validateCharacterRematchTag(good,original,catalog);
+assert(!ctx.validateCharacterRematchTag(good+', blue eyes',original,catalog).includes('blue eyes'));
 ctx.validateCharacterRematchTag(`2girls, ${star}, ${snow}, rooftop, 1216x832`,'2girls, rooftop, 1216x832',catalog);
 for (const invalid of [
   good.replace('星野瑶','未知角色'), good.replace('832x1216','1024x1024'),

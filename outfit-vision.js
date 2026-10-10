@@ -6,6 +6,20 @@ export const OUTFIT_VISION_FIELDS = [
   ['upperBodyBack', '上半身背面'], ['fullBodyBack', '下半身背面'],
   ['photoPrompt', '完整英文生图提示词'],
 ];
+export function parseOutfitJson(text) {
+  const clean=String(text||'').trim().replace(/^```(?:json)?\s*/i,'').replace(/\s*```$/,'');
+  try{return JSON.parse(clean);}catch{}
+  for(let start=0;start<clean.length;start++){
+    if(!['[','{'].includes(clean[start]))continue;
+    let depth=0,quoted=false,escaped=false;
+    for(let end=start;end<clean.length;end++){
+      const ch=clean[end];if(quoted){if(escaped)escaped=false;else if(ch==='\\')escaped=true;else if(ch==='"')quoted=false;continue;}
+      if(ch==='"')quoted=true;else if(ch==='['||ch==='{')depth++;else if(ch===']'||ch==='}')depth--;
+      if(depth===0){try{return JSON.parse(clean.slice(start,end+1));}catch{break;}}
+    }
+  }
+  throw Error('LLM 未返回有效 JSON，服装资料已保留，可再次识别。');
+}
 
 export function selectedOutfitImageId(preset) {
   const ids = preset?.photoImageIds || [];
@@ -72,7 +86,7 @@ export function normalizeVisionModelList(data) {
 
 // Independent, text-output request: reuse the selected API profile's URL, credentials and proxy,
 // without global tool/tail messages or changing any existing request-type assignment.
-export async function requestOutfitVision({ profile, model, messages, signal, fetchImpl = fetch, getHeaders, parseHeaders, parseBody, includeHeaders, listModels = false, parseResult = parseOutfitVisionResult }) {
+export async function requestOutfitVision({ profile, model, messages, signal, fetchImpl = fetch, getHeaders, parseHeaders, parseBody, includeHeaders, listModels = false, parseResult = parseOutfitVisionResult, retries = 2 }) {
   const url = String(profile.api_url || '').trim().replace(/\/$/, '');
   const key = String(profile.api_key || '').trim();
   if (!/^https?:\/\//i.test(url) || !key) throw new Error('请先在 LLM 页面保存完整的 API URL 和密钥。');
@@ -106,7 +120,10 @@ export async function requestOutfitVision({ profile, model, messages, signal, fe
   const content = data.choices?.[0]?.message?.content;
   const text = Array.isArray(content) ? content.filter(part => part.type === 'text').map(part => part.text).join('\n') : content;
   if (typeof text !== 'string' || !text.trim()) throw new Error('模型未返回文字，请选择支持本次输入、文字输出的对话模型。');
-  return parseResult(text);
+  try{return parseResult(text);}catch(error){
+    if(signal?.aborted||retries<=0)throw error;
+    return requestOutfitVision({profile,model,messages:[...messages,{role:'system',content:'Previous output failed validation. Return ONLY valid JSON in the requested schema, no reasoning or prose. Keep exact source tags and all group indexes. Validation: '+error.message}],signal,fetchImpl,getHeaders,parseHeaders,parseBody,includeHeaders,listModels,parseResult,retries:retries-1});
+  }
 }
 
 let activeDialog = null;
