@@ -2,7 +2,7 @@ import {normalizeDynamicTag,enforceCharacterConsistency,validateConsistencySourc
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
-import {buildGenerationPlan,materializeSopWorkflow,createStandardRegionalWorkflow,resolveSopAddressSettings,parseSopTag} from '../generation-sop.js';
+import {buildGenerationPlan,materializeSopWorkflow,createStandardRegionalWorkflow,resolveSopAddressSettings,parseSopTag,composeGenerationPositive} from '../generation-sop.js';
 import {prepareCharacterTags,appendCharacterLoras,applyCharacterLorasToWorkflow,comfyAddressKey} from '../character-lora.js';
 import {applyComfyClipSkip} from '../comfy-clip-skip.js';
 import {validateSopLoraFiles,resolveSopLoraBindings} from '../generation-sop-validation.js';
@@ -16,7 +16,7 @@ function harness(overrides={}, fallback=false) {
   const settings=structuredClone({...basic,...overrides}),events=[],requests=[],active=new Map();let acquired=0,released=0;
   const context=vm.createContext({Error,DOMException,AbortController,structuredClone,URL,console:{log(){},warn(){},error(){}},window:{},extensionName:'test',extension_settings49:{test:settings},extension_settings29:{test:settings},TaskType:{COMFYUI_IMG:'img'},TaskStatus:{RUNNING:'running'},activeComfyuiTasks:active,
     taskQueue:{addTask:()=>1,updateStatus(){},completeTask:(id,success)=>events.push({id,success}),isTaskInQueue:()=>true},comfyuiConcurrencyLock:{setMaxConcurrency(){}},acquireComfyUILock:async()=>{acquired++;},releaseComfyUILock:()=>{released++;},clearLog(){},addLog(){},toastr:{info(){},success(){},warning(){},error(){}},isPluginToastDisabled:()=>true,
-    normalizeDynamicTag,enforceCharacterConsistency,validateConsistencySources,getSopStateSnapshot:()=>({roles:{},body:'',contextKey:''}),processSopChangeCandidates:async()=>{},buildGenerationPlan,materializeSopWorkflow,resolveSopAddressSettings,parseSopTag,prepareCharacterTags,appendCharacterLoras,applyCharacterLorasToWorkflow,comfyAddressKey,applyComfyClipSkip,validateSopLoraFiles,resolveSopLoraBindings,mergePromptTags,
+    normalizeDynamicTag,enforceCharacterConsistency,validateConsistencySources,getSopStateSnapshot:()=>({roles:{},body:'',contextKey:''}),processSopChangeCandidates:async()=>{},buildGenerationPlan,materializeSopWorkflow,resolveSopAddressSettings,parseSopTag,composeGenerationPositive,prepareCharacterTags,appendCharacterLoras,applyCharacterLorasToWorkflow,comfyAddressKey,applyComfyClipSkip,validateSopLoraFiles,resolveSopLoraBindings,mergePromptTags,
     resolveAmbiguousCharacterTags:async tag=>tag,stripChineseAnnotations:async tag=>tag,deduplicateTags:tag=>tag,getRandomYusheId:()=>settings.yusheid_comfyui,
     prompt_replace:async prompt=>({modifiedPrompt:prompt,insertions:[]}),prompt_replace_for_character:prompt=>prompt,
     zhengmian:async(start,prompt,end,aqt)=>[start,prompt,end,aqt].filter(Boolean).join(', '),fumian:async(prompt,ucp)=>[prompt,ucp].filter(Boolean).join(', '),buildGenParams:(provider,params)=>params,
@@ -38,6 +38,7 @@ assert.deepEqual(singleResult.genParams.generationSop.actualWorkflow,singleNodes
 const dual=harness();
 const dualTag=`Scene Composition:2girls, holding hands;Character 1 Prompt:${reference('深雪')}, smiling|centers:{0.25,0.5};Character 1 UC:angry;Character 2 Prompt:${reference('海梦')}, sitting|centers:{0.75,0.5};Character 2 UC:standing;`;
 const dualResult=await dual.run({prompt:dualTag,extraNegativePrompt:'extra bad'});
+assert(dualResult.genParams.generationSop.actualWorkflow['1'].inputs.text.includes('2 distinct people'));assert(dualResult.genParams.generationSop.actualWorkflow['1'].inputs.text.includes('person on the left'));
 const dualNodes=JSON.parse(JSON.parse(dual.requests[0].options.body).prompt).prompt;
 for(const tag of ['snow only','black hair','default person','blonde hair','AQT marker'])assert(dualNodes['1'].inputs.text.includes(tag));
 assert(dualNodes['2'].inputs.text.includes('UCP marker'));assert(dualNodes['2'].inputs.text.includes('extra bad'));

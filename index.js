@@ -5,7 +5,7 @@ import {filterComfyPresets,bindPresetAddress} from './comfy-preset-scope.js';
 import { applySopOutfitPriority, isSopClothingTag } from './generation-sop-outfit.js';
 import { buildSopLlmInstructions } from './generation-sop-instructions.js';
 import { validateSopLoraFiles, resolveSopLoraBindings } from './generation-sop-validation.js';
-import { createStandardRegionalWorkflow, materializeSopWorkflow, resolveSopAddressSettings, parseSopTag } from './generation-sop.js';
+import { createStandardRegionalWorkflow, materializeSopWorkflow, resolveSopAddressSettings, parseSopTag, composeGenerationPositive } from './generation-sop.js';
 import { prepareSopGeneration, chooseSopFallback } from './generation-sop-runtime.js';
 import { resolveAmbiguousCharacterTags } from './sop-identity-ui.js';
 import { applyComfyClipSkip } from './comfy-clip-skip.js';
@@ -47385,6 +47385,7 @@ async function generateComfyUIImage({ prompt: link, width: Xwidth, height: Xheig
   sopPlan.scenePrompt = await zhengmian("", sopPlan.scenePrompt, "", generationSettings.AQT_comfyui, insertions);
   sopPlan.sceneNegative = await fumian(sopPlan.sceneNegative, generationSettings.UCP_comfyui);
   if (extraNegativePrompt?.trim()) sopPlan.sceneNegative += ", " + extraNegativePrompt.trim();
+  sopPlan.positive=composeGenerationPositive(sopPlan);
   let prompt2 = await zhengmian('', sopPlan.positive, '', generationSettings.AQT_comfyui, insertions);
   prompt2 = appendCharacterLoras(prompt2, sopPlan.bindings);
   const activeLoraWorkflow = /\{(?:ComfyUI)?局部重绘\}/.test(change) ? generationSettings.editWorker : sopPlan.workflow;

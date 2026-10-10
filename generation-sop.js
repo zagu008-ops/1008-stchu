@@ -4,6 +4,16 @@ import {comfyAddressKey, addressLoras, normalizeLoraBinding} from './character-l
 const join = (...values) => values.flat().map(value => String(value || '').trim()).filter(Boolean).join(', ');
 const normalize = value => String(value || '').normalize('NFKC').trim().toLowerCase().replace(/[_-]/g, ' ').replace(/\s+/g, ' ');
 const copy = value => JSON.parse(JSON.stringify(value));
+export function composeGenerationPositive(plan) {
+  if(plan.count<2)return join(plan.scenePrompt,plan.characters.map(p=>p.prompt));
+  const countTag=(plan.scenePrompt.match(/\b\d+(?:girls|boys|people)\b/i)||[])[0]||`${plan.count}people`;
+  const people=[...plan.characters].sort((a,b)=>a.x-b.x);
+  return [countTag,`${plan.count} distinct people`,plan.scenePrompt,...people.map((p,i)=>{
+    const position=people.length===2?(i===0?'person on the left':'person on the right'):`person ${i+1}`;
+    const prompt=p.prompt.replace(/\b(?:1girl|1boy|solo)\b\s*,?/gi,'').trim();
+    return `${position}: ${prompt}`;
+  })].filter(Boolean).join('\n');
+}
 function fail(code, message) { const error = new Error(message); error.code = code; throw error; }
 const names = (key, role) => [key, role.nameCN, role.nameEN, role.promptName].flatMap(value => String(value || '').split('|')).filter(Boolean);
 function enabledRoles(settings) {
