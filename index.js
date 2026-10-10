@@ -20,7 +20,7 @@ import { mountComfyAddressHistory } from './comfy-address-history.js';
  */
 import { normalizeStoryboardCount, buildStoryboardInstructions, validateStoryboardImages } from "./storyboard.js";
 import { mergePromptTags } from "./wardrobe-store.js";
-import { prepareCharacterTags, appendCharacterLoras, applyCharacterLorasToWorkflow } from "./character-lora.js";
+import { hasOutsideCharacterAppearance, prepareCharacterTags, appendCharacterLoras, applyCharacterLorasToWorkflow } from "./character-lora.js";
 import { initializeWardrobe, mountWardrobe, wardrobeOutfits, wardrobeSelectedOutfits } from "./wardrobe-ui.js";
 import { openOutfitVision } from "./outfit-vision.js";
 import { initializeCharacterSync, bindCharacterSyncControls, openCharacterSync } from "./character-sync.js";
@@ -113231,7 +113231,7 @@ function validateCharacterRematchTag(tag, originalTag, catalog) {
   const sizes = originalTag.match(/\b\d{2,4}x\d{2,4}\b/gi) || [];
   if (sizes.some(size => !tag.includes(size))) throw new Error("返回 tag 改动了图片尺寸，已保留原 tag。");
   const outsideReferences = tag.replace(/\$[^$]+\$/g, "");
-  if (/\b(?:[a-z]+[ _])(?:hair|eyes)\b/i.test(outsideReferences)) {
+  if (hasOutsideCharacterAppearance(outsideReferences)) {
     throw new Error("返回 tag 仍包含预设外的发型或瞳色，请重试；已保留原 tag。");
   }
 }

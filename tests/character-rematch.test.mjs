@@ -1,3 +1,4 @@
+import {hasOutsideCharacterAppearance} from '../character-lora.js';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import assert from 'node:assert/strict';
@@ -16,7 +17,7 @@ const settings = {
 };
 let writes = [], notices = [], popupCalls = 0, responseTag = '';
 const ctx = vm.createContext({
-  console, extensionName:'st-chatu8', extension_settings:{'st-chatu8':settings},
+  console, hasOutsideCharacterAppearance, extensionName:'st-chatu8', extension_settings:{'st-chatu8':settings},
   extension_settings41:{'st-chatu8':{}},
   showTagModifyDemandPopup:async()=>{popupCalls++;return null;},
   getElContext:async()=>['星野瑶坐在长椅上拿饮料'], processWorldBooksWithTrigger:async()=>'',
@@ -90,3 +91,6 @@ vm.runInContext(patched.slice(patched.indexOf('function normalizeTriggerText('),
 for (const name of ['星野瑶','星野遥','Hoshino_Haruka']) assert(ctx.isCharacterTriggered(settings.characterPresets.star,name));
 assert(ctx.isCharacterTriggered({promptName:'miyuki shiba'},'(miyuki_shiba:1.2)'));
 console.log('PASS: shared list, prompt names, underscore names, Chinese aliases and duplicate alias rejection.');
+
+ctx.validateCharacterRematchTag(good + ', closed_eyes, looking_at_viewer, hand_in_hair', original, catalog);
+assert.throws(()=>ctx.validateCharacterRematchTag(good+', (amber_eyes:1.2)',original,catalog));

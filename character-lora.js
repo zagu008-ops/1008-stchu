@@ -48,7 +48,11 @@ function bodyMentions(body, roles) {
     return /[\u3400-\u9fff]/.test(name) ? text.includes(name) : new RegExp(`(?:^|[^a-z0-9])${escaped}(?=$|[^a-z0-9])`, 'i').test(text);
   }));
 }
-const appearance = /^(?:(?:black|brown|blonde|blond|white|silver|grey|gray|red|blue|green|pink|purple|orange|long|short|medium|straight|wavy|curly)\s+hair|(?:black|brown|blue|green|red|grey|gray|purple|yellow|pink)\s+eyes|bangs|blunt bangs|sidelocks|ponytail|twintails|braid|hime cut|(?:small|medium|large|huge) breasts|slender|muscular|tall|short stature)$/i;
+const appearance = /^(?:(?:(?:black|brown|blonde|blond|white|silver|grey|gray|red|blue|green|pink|purple|orange|yellow|aqua|cyan|teal|platinum|multicolored|two tone|long|short|medium|straight|wavy|curly|messy|silky|flowing)(?:\s+|$))+hair|(?:black|brown|blue|green|red|grey|gray|purple|yellow|pink|orange|amber|aqua|cyan|teal|violet|silver|golden)\s+eyes|bangs|blunt bangs|side swept bangs|sidelocks|ponytail|high ponytail|side ponytail|twin tails|twintails|braid|hime cut|(?:small|medium|large|huge) breasts|slender|muscular|tall|short stature)$/i;
+export function isCharacterAppearanceTag(token) { return appearance.test(normal(token)); }
+export function hasOutsideCharacterAppearance(tag) {
+  return String(tag || '').replace(/\$[^$]+\$/g, '').split(/[,;\n|]/).some(token => isCharacterAppearanceTag(token.replace(/^\s*Character \d+ Prompt:\s*/i, '')));
+}
 function cleanAppearance(text) {
   const protectedReferences = [];
   const masked = text.replace(/\$[^$]+\$/g, value => `@@ROLE${protectedReferences.push(value)-1}@@`);

@@ -41,3 +41,7 @@ vm.runInContext(code.slice(code.indexOf('function saveCurrentCharacterData('),co
 assert.deepEqual(JSON.parse(JSON.stringify(preserved.characterPresets.snow.loraBindings)),savedBindings,'legacy editor preserves binding values');
 assert(code.includes('characterBody: requestData.characterBody'));assert(code.includes('preset.loraBindings = (existingPreset.loraBindings'));
 console.log('Character LoRA: matching, prose fallback, real preset expansion, ambiguity, visibility, multiple roles, weights, dedup, graph wiring and persistence passed.');
+
+const expandedAppearance=prepareCharacterTags('1girl, 深雪, (amber_eyes:1.2), yellow_hair, twin_tails, high_ponytail, side_swept_bangs, closed_eyes, hand_in_hair',settings);
+for(const word of ['amber_eyes','yellow_hair','twin_tails','high_ponytail','side_swept_bangs']) assert(!expandedAppearance.tag.includes(word));
+assert(expandedAppearance.tag.includes('closed_eyes'));assert(expandedAppearance.tag.includes('hand_in_hair'));
