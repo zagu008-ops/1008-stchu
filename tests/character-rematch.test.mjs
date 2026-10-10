@@ -75,3 +75,18 @@ assert.equal(popupCalls,1);
 assert.equal(patched.split('attachCharacterRematchButton(button);').length-1,2);
 assert(!helper.includes('rematchButton.className = "image-tag-button'));
 console.log('PASS: alias/catalog selection, single/multiple characters, unknown references, dimensions, conflicting appearance, persistence, rollback, existing popup flow, both DOM paths.');
+
+const shared = structuredClone(settings);
+shared.characterCommonPresetId = 'shared';
+shared.characterCommonPresets = {shared:{characters:['other','star']}};
+shared.characterPresets.other.promptName = 'different prompt name';
+const sharedCatalog = ctx.getCharacterRematchCatalog(shared);
+assert.deepEqual(Array.from(sharedCatalog, x => x.id), ['star','snow','other']);
+assert(sharedCatalog[2].aliases.includes('different prompt name'));
+ctx.validateCharacterRematchTag('${"name":"different_prompt_name","angle":"from front","upperBody":"sfw","lowerBody":"sfw"}$', '1girl', sharedCatalog);
+const duplicate = [...sharedCatalog, {...sharedCatalog[2],id:'duplicate'}];
+assert.throws(() => ctx.validateCharacterRematchTag('${"name":"different prompt name","angle":"from front","upperBody":"sfw","lowerBody":"sfw"}$','1girl',duplicate), /多个预设/);
+vm.runInContext(patched.slice(patched.indexOf('function normalizeTriggerText('),patched.indexOf('function inspectCharacterListTrigger(')),ctx);
+for (const name of ['星野瑶','星野遥','Hoshino_Haruka']) assert(ctx.isCharacterTriggered(settings.characterPresets.star,name));
+assert(ctx.isCharacterTriggered({promptName:'miyuki shiba'},'(miyuki_shiba:1.2)'));
+console.log('PASS: shared list, prompt names, underscore names, Chinese aliases and duplicate alias rejection.');
