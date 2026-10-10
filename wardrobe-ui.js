@@ -26,7 +26,7 @@ function ensureSelection(w){
 }
 
 export function initializeWardrobe(options){
- deps=options;library(settings());deps.save();
+ deps=options;const initial=library(settings());initial.pending=initial.pending.filter(item=>item.kind!=='cover');deps.save();
  deps.events.on('generate-image-request',data=>{
    if(!settings().wardrobe?.enabled)return;
    const w=library(settings()),ctx=deps.getContext(),text=String(data.change||data.prompt||'');
@@ -44,7 +44,7 @@ export function initializeWardrobe(options){
      const w=library(settings());
      job.pairs=job.pairs.filter(p=>settings().characterPresets?.[w.roles[p.roleId]?.key]&&w.roles[p.roleId]?.combinationIds?.includes(p.comboId));if(!job.pairs.length)return;
      if(job.pairs.length===1 && !job.needsConfirmation){const p=job.pairs[0];if(w.covers?.[p.roleId+':'+p.comboId]?.first)return;const id=await deps.saveImage(data.imageData);saveCover(settings(),p,id);deps.save();render();}
-     else {const id=await deps.saveImage(data.imageData);w.pending.push({id:newId(),kind:'cover',pairs:job.pairs,imageId:id});deps.save();render();deps.notify('多人生成图已加入角色衣橱待确认，请选择封面归属。');}
+     // Ambiguous images stay in the image cache; no manual cover confirmation queue.
    }catch(e){deps.notify('衣橱封面保存失败：'+e.message);}
  });
  deps.events.on(deps.eventTypes.GENERATION_ENDED,()=>setTimeout(()=>{
@@ -106,7 +106,7 @@ function render(){
    for(const p of w.pending){const card=el('article','','wardrobe-candidate');root.append(card);
      if(p.kind==='wear'){const r=w.roles[p.roleId],c=w.combinations[p.comboId],valid=p.chat===chatKey(ctx)&&validSource(p.source,ctx)&&roleCombinations(s,p.roleId).some(c=>c.id===p.comboId);card.append(el('h4',`${r?.key||'已删除角色'} → ${c?.name||'已删除组合'}`),el('p',p.reason),el('blockquote',p.evidence),el('small',valid?'仅应用当前剧情，不修改默认':'正文已变更或来自其他聊天，请重新匹配'));
        const b=button('采用候选',()=>{if(!valid)throw Error('正文已变更，请重新匹配。');applyWear(s,ctx,p.roleId,p.comboId,(scene(s,ctx).modes[p.roleId]||'manual')==='manual',p.source);w.pending=w.pending.filter(x=>x.roleId!==p.roleId||x.kind!=='wear'||x.chat!==p.chat);chosenRole=p.roleId;chosenCombo=p.comboId;wizardStep=3;page='wizard';persist();});b.disabled=!valid;card.append(b);
-     }else if(p.kind==='cover'){card.append(el('h4','选择多人图的封面归属'));image(card,p.imageId,token);for(const pair of p.pairs)card.append(button(`${w.roles[pair.roleId]?.key} · ${w.combinations[pair.comboId]?.name}：设为封面`,()=>{saveCover(s,pair,p.imageId,true);w.pending=w.pending.filter(x=>x.id!==p.id);persist();}));}
+     }
      card.append(button('忽略',()=>{w.pending=w.pending.filter(x=>x.id!==p.id);persist();}));
    }
  }
@@ -245,6 +245,11 @@ function renderWizard(token){
  const s=settings(),w=library(s),ctx=deps.getContext(),r=w.roles[chosenRole],p=s.characterPresets?.[r?.key],own=roleCombinations(s,chosenRole);
  if(wizardStep===null)wizardStep=resolveWear(s,ctx,chosenRole)?3:1;
  if(!p)wizardStep=1;if(wizardStep===3&&!own.some(c=>c.id===chosenCombo))wizardStep=2;
+ const controls=el('div','','wardrobe-toolbar');root.append(controls);
+ const activeLists=enabledRoleLists(s),inEnabled=!!r&&activeLists[0].entries.some(entry=>entry.key===r.key),inCommon=!!r&&activeLists[1].entries.some(entry=>entry.key===r.key);
+ controls.append(el('strong',p?`${(p.nameCN||r.key).split('|')[0]}：${inEnabled?'已启用':inCommon?'通用列表已启用':'未启用'}`:'请选择角色'));
+ if(p)controls.append(button(inEnabled?'取消角色启用':'启用角色',()=>{setRoleEnabled(s,r.key,!inEnabled);persist();}));
+ controls.append(button('查看已启用角色',()=>showEnabledRoles()));
  const steps=el('nav','','wardrobe-steps');steps.setAttribute('aria-label','衣橱配置步骤');root.append(steps);
  for(const [n,title]of [[1,'选角色'],[2,'配服装'],[3,'确认应用']]){const b=button(`${n} · ${title}`,()=>{wizardStep=n;render();});b.disabled=n>1&&!p||n===3&&!own.some(c=>c.id===chosenCombo);if(wizardStep===n)b.setAttribute('aria-current','step');if(n>1)steps.append(el('span','→','wardrobe-step-arrow'));steps.append(b);}
  const panel=el('section','','wardrobe-workbench wardrobe-flow');panel.dataset.wizardStep=String(wizardStep);root.append(panel);
@@ -304,13 +309,13 @@ function renderWizard(token){
    const c=w.combinations[chosenCombo],outfit=w.outfits[c.outfitId],data=s.outfitPresets[outfit.key],pair={roleId:chosenRole,comboId:chosenCombo},cover=w.covers?.[chosenRole+':'+chosenCombo];
    panel.append(el('h4','确认这次穿搭'));
    const preview=el('div','','wardrobe-confirm-preview'),thumb=el('div','◈','wardrobe-thumb');preview.append(thumb);image(thumb,cover?.current||itemPhoto(data)||itemPhoto(p),token);
-   const info=el('div');info.append(el('h4',`${(p.nameCN||r.key).split('|')[0]} × ${c.name}`),el('p',current?`当前穿搭：${w.combinations[current.comboId].name}`:'当前穿搭：尚未应用'),el('small',cover?'组合预览图':'首次成功生成后保存组合预览图'));preview.append(info);panel.append(preview);
+   const info=el('div');info.append(el('h4',`${(p.nameCN||r.key).split('|')[0]} × ${c.name}`),el('p',current?`当前穿搭：${w.combinations[current.comboId].name}`:'当前穿搭：尚未应用'),el('small',cover?'组合预览图':'首次成功生成后保存组合预览图'));info.append(button('从酒馆缓存选择预览图',()=>chooseCachedCover(pair)));preview.append(info);panel.append(preview);
    const mode=field(panel,'穿搭模式','','select');mode.add(new Option('手动配置（应用后锁定）','manual'));mode.add(new Option('正文自适应（检测后由你确认）','auto'));const draftKey=chatKey(ctx)+':'+chosenRole;mode.value=draftModes.get(draftKey)||scene(s,ctx).modes[chosenRole]||'manual';panel.manualMode=mode.value==='manual';mode.onchange=()=>{draftModes.set(draftKey,mode.value);render();};
    panel.append(el('p',mode.value==='auto'?'新正文出现后检测候选服装，经你确认再更换。':'应用后保留这套服装，直到你手动更换。'));
    let enable;if(!roleEnabled(r.key)){const label=el('label','','wardrobe-checkbox');enable=el('input');enable.type='checkbox';enable.checked=draftEnables.get(draftKey)??true;enable.onchange=()=>draftEnables.set(draftKey,enable.checked);label.append(enable,el('span','同时启用这个角色参与生图'));panel.append(label);}else panel.append(el('small','这个角色已启用，可参与生图。'));
    const prompt=el('details','','wardrobe-prompt-details');prompt.append(el('summary','查看生图提示词'),el('p',`生图名称：${p.promptName||p.nameEN?.split('|')[0]||'未填写'}`),el('pre',mergePromptTags(data.loraTriggerWords,data.upperBody,data.fullBody)));panel.append(prompt);
    const actions=el('div','','wardrobe-toolbar');actions.append(button('更换穿搭',()=>{wizardStep=2;wearFilter='';render();}));if(mode.value==='auto')actions.append(button('按正文匹配',()=>scan(chosenRole)));actions.append(moreMenu('更多穿搭操作',[
-     ['LLM 语义匹配',()=>semanticMatch(chosenRole)],['设为角色默认',()=>{if(!roleCombinations(s,chosenRole).some(x=>x.id===chosenCombo))throw Error('服装关联已变化，请重新选择。');r.defaultComboId=chosenCombo;persist();}],['另存穿搭组合',()=>copyCombination()],['上传替换预览图',()=>uploadCover(pair)],['恢复首张预览图',()=>{if(cover?.first){cover.current=cover.first;persist();}}]
+     ['LLM 语义匹配',()=>semanticMatch(chosenRole)],['设为角色默认',()=>{if(!roleCombinations(s,chosenRole).some(x=>x.id===chosenCombo))throw Error('服装关联已变化，请重新选择。');r.defaultComboId=chosenCombo;persist();}],['另存穿搭组合',()=>copyCombination()],['从酒馆缓存选择预览图',()=>chooseCachedCover(pair)],['上传替换预览图',()=>uploadCover(pair)],['恢复首张预览图',()=>{if(cover?.first){cover.current=cover.first;persist();}}]
    ]));panel.append(actions);
    panel.apply=()=>{applyWear(s,ctx,chosenRole,chosenCombo,mode.value==='manual');scene(s,ctx).modes[chosenRole]=mode.value;if(enable?.checked)enableRole(r.key,false);(w.ui ||= {}).lastRoleId=chosenRole;draftModes.delete(draftKey);draftEnables.delete(draftKey);persist();deps.notify('已应用当前穿搭。',true);};
  }
@@ -352,4 +357,26 @@ async function createFictionalRole(){
    delete next.notes;next.outfits=[];next.creationSource={kind:'fictional-text',concept:concept.value.trim()};(s.characterPresets ||= {})[key]=next;
    const w=library(s);chosenRole=Object.values(w.roles).find(r=>r.key===key).id;chosenCombo='';wizardStep=2;page='wizard';wearFilter='';wearPage=1;(w.ui ||= {}).lastRoleId=chosenRole;if(enable.checked)enableRole(key,false);persist();d.close();
  });save.disabled=true;d.append(generate,enableLine,save);
+}
+
+function showEnabledRoles(){
+ const d=dialog('已启用角色列表'),s=settings();
+ for(const list of enabledRoleLists(s)){
+   d.append(el('h4',`${list.kind}列表：${list.id||'未选择'}`));
+   if(!list.entries.length)d.append(el('p','暂无角色'));
+   for(const entry of list.entries)d.append(el('p',entry.role?`${(entry.role.nameCN||entry.key).split('|')[0]} · ${names(entry.role,entry.key).join(' / ')}`:`${entry.key}（资料不存在）`));
+ }
+}
+async function chooseCachedCover(pair){
+ const d=dialog('从酒馆图片缓存选择预览图'),s=settings(),loading=el('p','读取缓存…');d.append(loading);
+ const items=await deps.getCachedImages();if(!d.isConnected)return;loading.remove();
+ if(!items.length){d.append(el('p','酒馆缓存中暂无图片。请先生成并保存图片，或使用上传替换预览图。'));return;}
+ let page=1;const area=el('div');d.append(area);
+ const draw=()=>{area.replaceChildren();const result=paginateItems(items,page,12),grid=el('div','','wardrobe-grid');area.append(grid);
+   for(const item of result.items){const card=el('article','','wardrobe-card'),img=el('img');img.src=item.path;img.alt='酒馆缓存图片';img.loading='lazy';img.style.cssText='width:100%;height:160px;object-fit:contain';card.append(img,button('用作预览图',async()=>{
+     if(settings()!==s||!roleCombinations(s,pair.roleId).some(c=>c.id===pair.comboId))throw Error('角色或服装已变化，请重新选择。');
+     const id=await deps.saveImage(item.path);if(!d.isConnected)return;saveCover(s,pair,id,true);d.close();persist();
+   }));grid.append(card);}
+   const nav=el('div','','wardrobe-toolbar'),prev=button('上一页',()=>{page--;draw();}),next=button('下一页',()=>{page++;draw();});prev.disabled=page===1;next.disabled=page===result.pages;nav.append(prev,el('span',`${page} / ${result.pages} · ${items.length} 张`),next);area.append(nav);
+ };draw();
 }

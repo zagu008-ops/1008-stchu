@@ -113062,6 +113062,17 @@ async function main() {
     events: eventSource, eventTypes: event_types, save: saveSettingsDebounced72,
     notify: (message, success) => success ? toastr.success(message) : toastr.warning(message),
     getImage: async id => { init_configDatabase(); return getConfigImage(id); },
+    getCachedImages: async () => {
+      const storage = extension_settings[extensionName]?.jiuguanStorage || {};
+      const seen = new Set(), images = [];
+      for (const entry of Object.values(storage).reverse()) for (const item of [...(entry?.images || [])].reverse()) {
+        if (!item.path || item.isVideo || /video|mp4|webm/i.test(item.format || '') || seen.has(item.path)) continue;
+        const url = new URL(item.path, location.origin);
+        if (url.origin !== location.origin || !/^https?:$/.test(url.protocol)) continue;
+        seen.add(item.path); images.push({path:item.path});
+      }
+      return images;
+    },
     saveImage: async data => {
       init_configDatabase();
       if (typeof data === "string" && /^(?:https?:\/\/|\/)/.test(data)) {
