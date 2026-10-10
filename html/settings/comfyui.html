@@ -297,6 +297,11 @@
             <label for="comfyuiCLIPName">CLIP</label>
             <select id="comfyuiCLIPName" class="st-chatu8-select"></select>
         </div>
+        <div class="st-chatu8-field">
+            <label for="comfyui_clip_skip">CLIP skip / 停止在 CLIP 层</label>
+            <input id="comfyui_clip_skip" type="number" min="-24" max="-1" step="1" class="st-chatu8-text-input" placeholder="留空沿用工作流，例如 -2">
+        </div>
+        <small>填写 -2 对应 ComfyUI 的 stop_at_clip_layer = -2。留空保持工作流原值；仅用于包含 CLIPSetLastLayer 节点的工作流。</small>
     </div>
     <div class="st-chatu8-settings-section">
         <h4>生成参数</h4>
