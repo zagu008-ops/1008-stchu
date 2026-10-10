@@ -67,7 +67,7 @@ export function getSopOutfitForRole(roleKey, reference={}) {
  const r=Object.values(library(s).roles).find(role=>role.key===roleKey);
  const wear=r&&resolveWear(s,deps.getContext(),r.id);
  if(!wear)return null;
- return {roleId:r.id,outfitKey:wear.outfitKey,comboId:wear.comboId,source:wear.source?.default?'default':'chat',outfit:structuredClone(wear.outfit),prompt:expandSopResolvedOutfit(wear.outfit,reference)};
+ return {roleId:r.id,outfitKey:wear.outfitKey,comboId:wear.comboId,source:wear.source?.default?'default':'chat',locked:wear.source?.locked===true,outfit:structuredClone(wear.outfit),prompt:expandSopResolvedOutfit(wear.outfit,reference)};
 }
 export function getSopStateSnapshot(){
  if(!deps)return {roles:{},body:'',contextKey:''};
@@ -76,7 +76,7 @@ export function getSopStateSnapshot(){
    if(!roleEnabled(key))continue;
    const override=resolveAppearanceOverride(s,ctx,key);
    let wear=getSopOutfitForRole(key);
-   if(!wear&&!s.wardrobe?.enabled&&role.outfits?.length===1&&s.outfitPresets?.[role.outfits[0]])wear={outfitKey:role.outfits[0],source:'legacy-default',prompt:expandSopResolvedOutfit(s.outfitPresets[role.outfits[0]])};
+   if(!wear&&!s.wardrobe?.enabled&&role.outfits?.length===1&&s.outfitPresets?.[role.outfits[0]])wear={outfitKey:role.outfits[0],source:'legacy-default',outfit:structuredClone(s.outfitPresets[role.outfits[0]]),prompt:expandSopResolvedOutfit(s.outfitPresets[role.outfits[0]])};
    roles[key]={appearanceOverride:override,appearance:authorityAppearance(role,{},override),wear};
  }
  return {roles,body:body.text,contextKey:chatKey(ctx),source:{index:body.index,stamp:body.stamp}};

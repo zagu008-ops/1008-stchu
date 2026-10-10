@@ -13,10 +13,10 @@ export function structuredImageMessages({body,roles,count,accepted=[],issue='',d
 返回 {"images":[{"regex":"正文中的独特连续原句","scene":["英文场景、道具、镜头、光线 tag"],"characters":[{"roleKey":"角色 key","identityName":"未确定身份时的正文名称","action":["英文动作 tag"],"expression":["英文表情 tag"],"pose":["英文姿态 tag"],"view":"from front","upperBody":"sfw","lowerBody":"sfw","position":[0.5,0.5],"negative":["bad hands"]}]}]}。
 总共需要 ${count} 张不同分镜，按正文顺序。regex 必须在正文中恰好出现一次。只返回尚未通过校验的分镜，不能重复 accepted 中的 regex。
 每张图只填写该分镜实际入画的人物；正文提到其他人不代表他们必须入画。单人动作或表情特写只选主角，确有同框互动才使用多个人物。多人 scene 写明人数，人物 position 分开，不能把两个人的外貌合成一个人。
-scene 不含人物外貌衣服；角色外貌、预设和 LoRA 由程序补全。action/expression/pose 不含发色、瞳色或衣服。每个人可填写 clothing 英文服装 tag 数组，优先正文服装，正文没写时按场景合理生成；没有合适服装可省略。程序有已配置穿搭时优先配置，否则保留 clothing。
+scene 不含人物外貌衣服；角色外貌、预设和 LoRA 由程序补全。action/expression/pose 不含发色、瞳色或衣服。每个人可填写 clothing 英文服装 tag 数组，优先正文服装，正文没写时按场景合理生成；没有合适服装可省略。clothing 仅作无正文证据时的服装回退；正文明确衣着必须同时填写 outfitFromBody，程序会优先正文衣着，手动锁定穿搭除外。
 角色 key 只能从 roles 选择；别名重名不能猜选角色，roleKey 留空并填 identityName。原创人物填写 originalDescription 英文 tag 数组，只描述正文明确的外貌衣着。
 view 只用 from front/from behind；upperBody/lowerBody 只用 sfw/nsfw/hidden；position 是两个 0～1 数字。多人身份和位置不能交换。
-正文明确描述且角色未配置的外貌或服装可用 appearanceFromBody/outfitFromBody:{"tags":["英文 tag"],"evidence":"正文原句"}；没有证据则省略。换装/外貌变化可用 outfitChange/appearanceChange，需 evidence，交由程序确认。
+角色未配置且正文明确描述的外貌可用 appearanceFromBody:{"tags":["英文 tag"],"evidence":"正文原句"}。正文明确该人物当前实际穿着时必须填写 outfitFromBody 同样结构，即使绑定了默认服装也提取。证据是含人物身份或明确归属代词及当前衣着的正文连续片段；购买、手持、计划换装、他人服装不算。服装 tags 只含该人物当前可见衣着，不混入外貌或其他人物服装。没有证据则省略。换装/外貌变化可用 outfitChange/appearanceChange，需 evidence，交由程序确认。
 任何 tag、名称或 evidence 不含分号、换行、美元符号或图片标记。优先选择不含这些字符的真实正文片段。`},
   {role:'user',content:encode({body,roles,count,accepted,demand,validationIssue:issue})}];
 }

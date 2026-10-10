@@ -54,15 +54,31 @@ export function enforceCharacterConsistency(plan,settings,preparedPeople,states=
   if(!wear&&settings.sopDefaultOutfitKey&&settings.outfitPresets?.[settings.sopDefaultOutfitKey])wear={outfitKey:settings.sopDefaultOutfitKey,source:'public',prompt:expandSopResolvedOutfit(settings.outfitPresets[settings.sopDefaultOutfitKey],ref)};
   const llm=preparedPeople.find(p=>p.id===person.id)?.prompt||'';
   const describedClothing=tokens(llm).some(isSopClothingTag);
+  const bodyClothing=(provenFields[person.id]||[]).filter(isSopClothingTag);
+  const previousWear=wear;
+  if(bodyClothing.length&&!wear?.locked){
+    // Remove outfit activation words too: opaque triggers are not garment tags.
+    const oldTriggers=new Set(tokens(wear?.outfit?.loraTriggerWords).map(normal));
+    const retain=t=>!oldTriggers.has(normal(t))&&!isSopClothingTag(t);
+    person.prompt=tokens(person.prompt).filter(retain).join(', ');
+    // Scene clothing is global and would leak the old outfit into every person.
+    plan.scenePrompt=tokens(plan.scenePrompt).filter(retain).join(', ');
+    for(const binding of person.bindings||[])binding.triggerWords=tokens(binding.triggerWords).filter(retain).join(', ');
+    wear={source:'body',prompt:bodyClothing.join(', ')};
+    trace.push({source:'人物 '+person.id,reason:'body-outfit-priority',previousOutfitKey:previousWear?.outfitKey||null,tags:bodyClothing});
+  }else if(bodyClothing.length&&wear?.locked&&bodyClothing.some(t=>!tokens(wear.prompt).some(w=>normal(w)===normal(t)))){
+    plan.warnings||=[];plan.warnings.push(`角色“${person.name}”正文服装与锁定穿搭不同，本次保留锁定穿搭。`);
+  }
   if(wear?.source==='public'&&describedClothing)wear=null;
   if(!(ref.upperBody==='hidden'&&ref.lowerBody==='hidden')&&!wear&&!describedClothing){
     plan.warnings||=[];plan.warnings.push(`角色“${person.name}”未配置穿搭，沿用 LLM 服装 tag；没有服装 tag 时仍继续生成。`);
   }
-  for(const [label,text,negative] of [['人物正面预设',[preset.fixedPrompt,preset.fixedPrompt_end].join(', '),false],['人物负面预设',preset.negativePrompt,true],['角色负面资料',role.negative,true]])clean(text,locks,label,true===negative,true,wear?.prompt);
+  const presetWear=wear?.source==='body'?'':wear?.prompt;
+  for(const [label,text,negative] of [['人物正面预设',[preset.fixedPrompt,preset.fixedPrompt_end].join(', '),false],['人物负面预设',preset.negativePrompt,true],['角色负面资料',role.negative,true]])clean(text,locks,label,true===negative,true,presetWear);
   // Check hand-written scene presets independently; never silently rewrite them.
   const scene=settings.yushe?.[plan.scenePresetId]||{};
-  clean([scene.fixedPrompt,scene.fixedPrompt_end].join(', '),locks,'公共画面预设',false,true,wear?.prompt);
-  clean(scene.negativePrompt,locks,'公共负面预设',true,true,wear?.prompt);
+  clean([scene.fixedPrompt,scene.fixedPrompt_end].join(', '),locks,'公共画面预设',false,true,presetWear);
+  clean(scene.negativePrompt,locks,'公共负面预设',true,true,presetWear);
   const evidence=provenFields[person.id]||[];
   person.prompt=tokens(person.prompt).filter(token=>{
     const attrs=appearanceAttributes(token);
@@ -84,6 +100,11 @@ export function enforceCharacterConsistency(plan,settings,preparedPeople,states=
   person.authority={appearance:authority,locks,overrideSource:state.appearanceOverride?.source||null};
  }
  plan.consistencyTrace=trace;
+ // Rebuild the transport list so removed clothing triggers cannot be appended again.
+ if(plan.bindings)plan.bindings=plan.bindings.map(binding=>{
+   const owners=plan.characters.flatMap(p=>p.bindings||[]).filter(b=>b.file===binding.file);
+   return owners.length?{...binding,triggerWords:[...new Set(owners.flatMap(b=>tokens(b.triggerWords)))].join(', ')}:binding;
+ });
  plan.positive=[plan.scenePrompt,...plan.characters.map(p=>p.prompt)].filter(Boolean).join(', ');
  plan.negative=[plan.sceneNegative,...plan.characters.map(p=>p.negative)].filter(Boolean).join(', ');
  return plan;
@@ -98,7 +119,9 @@ export function normalizeDynamicTag(raw,body=''){
    provenFields[id]=[];
    for(const field of ['outfitFromBody','appearanceFromBody']){
      const value=data[field];
-     if(value&&typeof value.evidence==='string'&&value.evidence.trim()&&body.includes(value.evidence)){
+     const evidence=value?.evidence||'';
+     const onlyProp=field==='outfitFromBody'&&/(购买|买了|买一|想买|手持|拿着|拎着|打算穿|准备换|计划穿|holding|buying|carrying|plans? to wear)/i.test(evidence)&&!/(身穿|穿着|换上了|已经换上|wearing|dressed in)/i.test(evidence);
+     if(value&&typeof evidence==='string'&&evidence.trim()&&body.includes(evidence)&&!onlyProp){
        parts.push(...list(value.tags));provenFields[id].push(...list(value.tags));
      }
    }

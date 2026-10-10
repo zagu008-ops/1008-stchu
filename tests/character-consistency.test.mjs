@@ -37,3 +37,26 @@ assert(!enforceCharacterConsistency(withCollar,settings,prepared,state).positive
 const fallbackSettings={...settings,sopDefaultOutfitKey:'basic',outfitPresets:{basic:{upperBody:'white shirt',fullBody:'blue skirt'}}};
 const publicWear=enforceCharacterConsistency(fresh(),fallbackSettings,prepared,{},'她坐着。');assert(publicWear.positive.includes('school uniform'));assert(!publicWear.positive.includes('white shirt'));
 const bodyWear=enforceCharacterConsistency(fresh(),fallbackSettings,prepared,{},'她穿校服坐着。');assert(bodyWear.positive.includes('school uniform'));
+
+const swimBody='星野遥穿着蓝色泳衣坐在池边。';
+const swimDynamic='Character 1 Dynamic:{"roleKey":"star","outfitFromBody":{"tags":["blue swimsuit"],"evidence":"星野遥穿着蓝色泳衣"}};';
+const swim=normalizeDynamicTag(swimDynamic,swimBody);
+const bound={star:{wear:{outfitKey:'shirt',source:'default',outfit:{loraTriggerWords:'OldSchoolTrigger',upperBody:'white shirt',fullBody:'blue skirt'}}}};
+const withBinding=()=>{const p=fresh();p.characters[0].prompt+=', OldSchoolTrigger';p.characters[0].bindings=[{file:'identity.safetensors',triggerWords:'starIdentity, white shirt, OldSchoolTrigger'}];p.bindings=structuredClone(p.characters[0].bindings);return p;};
+const changed=enforceCharacterConsistency(withBinding(),settings,prepared,bound,swimBody,swim.provenFields);
+assert(changed.positive.includes('blue swimsuit'));
+for(const old of ['white shirt','blue skirt','school uniform','OldSchoolTrigger'])assert(!changed.positive.includes(old));
+assert.equal(changed.characters[0].outfit.source,'body');
+assert.equal(changed.bindings[0].triggerWords,'starIdentity');
+assert.equal(bound.star.wear.outfitKey,'shirt','image override must not mutate persistent wear');
+const locked=structuredClone(bound);locked.star.wear.locked=true;
+const kept=enforceCharacterConsistency(withBinding(),settings,prepared,locked,swimBody,swim.provenFields);
+assert(kept.positive.includes('white shirt'));assert(!kept.positive.includes('blue swimsuit'));assert(kept.warnings.some(w=>w.includes('锁定')));
+const unsupported=normalizeDynamicTag(swimDynamic,'她坐在池边。');
+assert(!enforceCharacterConsistency(withBinding(),settings,prepared,bound,'她坐在池边。',unsupported.provenFields).positive.includes('blue swimsuit'));
+const prop=swimDynamic.replace('星野遥穿着蓝色泳衣','星野遥拿着蓝色泳衣');
+assert.deepEqual(normalizeDynamicTag(prop,'星野遥拿着蓝色泳衣').provenFields[1],[]);
+const two=withBinding();two.characters.push({...fresh().characters[0],id:2});
+const paired=enforceCharacterConsistency(two,settings,[...prepared,{...prepared[0],id:2}],bound,swimBody,swim.provenFields);
+assert(paired.characters[0].prompt.includes('blue swimsuit'));
+assert(paired.characters[1].prompt.includes('white shirt'));assert(!paired.characters[1].prompt.includes('blue swimsuit'));
