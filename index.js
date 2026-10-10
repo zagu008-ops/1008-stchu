@@ -1,3 +1,4 @@
+import { createTagGenerationRunner, installTagGenerationRetry } from './tag-generation-retry.js';
 import {normalizeDynamicTag,enforceCharacterConsistency,validateConsistencySources} from './character-consistency.js';
 import {filterComfyPresets,bindPresetAddress} from './comfy-preset-scope.js';
 import { applySopOutfitPriority, isSopClothingTag } from './generation-sop-outfit.js';
@@ -38909,8 +38910,13 @@ function showUserDemandPopup2(options = {}) {
     setTimeout(() => textarea.focus(), 100);
   });
 }
+const runMessageTagGeneration = createTagGenerationRunner();
 async function handlePromptRequest(el, gestureId, options = {}) {
-  return processImageLikeRequest(el, gestureId, "image_gen", "\u6B63\u6587\u56FE\u7247\u751F\u6210", LLM_IMAGE_GEN, options);
+  const id = Number(el?.closest?.('.mes')?.getAttribute('mesid'));
+  const message = getContext12()?.chat?.[id];
+  return runMessageTagGeneration(message,
+    () => processImageLikeRequest(el, gestureId, "image_gen", "\u6B63\u6587\u56FE\u7247\u751F\u6210", LLM_IMAGE_GEN, options),
+    () => toastr.info('这条回复正在生成 tag，请等待当前请求结束。'));
 }
 async function handleVisualMatPrepRequest(el, gestureId) {
   return processImageLikeRequest(el, gestureId, "visual_mat_prep", "\u89C6\u6750\u51C6\u5907", LLM_VISUAL_MAT_PREP);
@@ -39256,7 +39262,7 @@ async function processImageLikeRequest(el, gestureId, requestType, title, llmFun
   const initialContext = getContext12();
   const targetMessage = initialContext?.chat?.[targetMessageId];
   const originalMessageText = targetMessage?.mes;
-  const targetIsCurrent = () => !storyboard || (el?.isConnected && getContext12()?.chat?.[targetMessageId] === targetMessage && targetMessage?.mes === originalMessageText);
+  const targetIsCurrent = () => requestType !== 'image_gen' || (el?.isConnected && getContext12()?.chat?.[targetMessageId] === targetMessage && targetMessage?.mes === originalMessageText);
   const mainTimer = debugTimer(`promptReq.${requestType}`, `${title}\u6838\u5FC3\u6D41\u7A0B`);
   debugMilestone(requestType, `\u5F00\u59CB\u5904\u7406${title}\u8BF7\u6C42`);
   debugLog(`promptReq.${requestType}`, "\u8BF7\u6C42\u521D\u59CB\u5316", {
@@ -39632,7 +39638,7 @@ async function processImageLikeRequest(el, gestureId, requestType, title, llmFun
     const insertTimer = debugTimer("insertImagesIntoElement", "\u63D2\u5165\u56FE\u7247\u6807\u7B7E");
     await insertImagesIntoElement(el, images);
     insertTimer.end("\u63D2\u5165\u5B8C\u6210");
-    const autoClickEnabled = String(extension_settings40[extensionName]?.zidongdianji) === "true";
+    const autoClickEnabled = options.tagOnly !== true && String(extension_settings40[extensionName]?.zidongdianji) === "true";
     if (autoClickEnabled) {
       const { taskQueue: taskQueue2, TaskType: TaskType2, TaskStatus: TaskStatus2 } = await Promise.resolve().then(() => (init_taskQueue(), taskQueue_exports));
       const { eventSource: eventSource49 } = await import("../../../../script.js");
@@ -113281,6 +113287,16 @@ function addNewElement() {
 
 
 // One-click character/outfit rematching; appended to the plugin bundle.
+installTagGenerationRetry({
+  root: document.body,
+  getMessage: id => getContext12()?.chat?.[id],
+  hasTags: text => text.includes(getImageTags().startTag),
+  run: body => {
+    init_promptReq();
+    return handlePromptRequest(body, 'gesture1', { autoReply: true, tagOnly: true });
+  },
+  onError: error => toastr.error(`生成 tag 失败，可点击重试：${error.message}`)
+});
 function getCharacterRematchCatalog(settings) {
   const preset = settings.characterEnablePresets?.[settings.characterEnablePresetId];
   const common = settings.characterCommonPresets?.[settings.characterCommonPresetId];
