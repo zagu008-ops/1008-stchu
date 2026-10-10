@@ -1,0 +1,26 @@
+<div id="ch-tab-comfyui-connection">
+    <section class="st-chatu8-settings-section" id="ch-comfyui-connection">
+        <h3>ComfyUI 连接设置</h3>
+        <div class="st-chatu8-field">
+            <label for="comfyuiUrl">API 地址</label>
+            <div class="st-chatu8-input-group">
+                <i class="fa-solid fa-exclamation-triangle st-chatu8-url-warning-icon" title="无效的URL格式"></i>
+                <input type="text" id="comfyuiUrl" class="st-chatu8-text-input" placeholder="http://127.0.0.1:8188">
+                <button id="testComfyui" class="st-chatu8-btn">连接刷新数据</button>
+            </div>
+        </div>
+        <div class="st-chatu8-field-col">
+            <button id="ch-comfyui-test-image" class="st-chatu8-btn">生成一张测试图</button>
+            <small>使用当前工作流生成 512×512 的猫咪插画，检查完整生图连接。无需调用 LLM。</small>
+            <div id="ch-comfyui-test-result" role="status"></div>
+        </div>
+        <div class="st-chatu8-field">
+            <label for="comfyui_max_concurrency">并发请求上限 (最大10并发)</label>
+            <input type="number" id="comfyui_max_concurrency" class="st-chatu8-text-input" min="1" max="10" step="1" placeholder="10">
+        </div>
+        <div class="st-chatu8-field">
+            <label for="comfyui_timeout">请求超时时间 (秒，1800秒为30分钟)</label>
+            <input type="number" id="comfyui_timeout" class="st-chatu8-text-input" min="30" step="10" placeholder="1800">
+        </div>
+    </section>
+</div>

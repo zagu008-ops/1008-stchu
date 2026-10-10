@@ -1,3 +1,7 @@
+## ComfyUI 连接配置独立菜单（2026-10-10）
+
+左侧新增 ComfyUI 连接配置，集中 API 地址、连接刷新、历史地址（原挂载逻辑）、测试图、并发与超时。控件 ID 及保存事件沿用，原 ComfyUI 页保留工作流、提示词与生图参数，无重复地址输入框。
+
 ## 重匹配外貌清理与校验统一（2026-10-10）
 
 修复清理规则漏掉 amber / orange 瞳色、twin tails、high ponytail、side swept bangs 等词，而宽泛校验误拦 closed eyes / hand in hair 的问题。校验与清理共用按完整 tag 判断的外貌词规则，支持权重及下划线；保留表情动作和原预设引用。两组匹配回归测试及 index.js 语法检查通过。
