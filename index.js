@@ -1,4 +1,5 @@
 import { createTagGenerationRunner, installTagGenerationRetry } from './tag-generation-retry.js';
+import {generateStructuredImageTags,structuredImageMessages,relevantImageRoles} from './structured-image-tags.js';
 import {normalizeDynamicTag,enforceCharacterConsistency,validateConsistencySources} from './character-consistency.js';
 import {filterComfyPresets,bindPresetAddress} from './comfy-preset-scope.js';
 import { applySopOutfitPriority, isSopClothingTag } from './generation-sop-outfit.js';
@@ -37930,8 +37931,8 @@ function LLM_EXECUTE(prompt2, { timeoutMs = 6e5 } = {}) {
     }, timeoutMs);
   });
 }
-function LLM_IMAGE_GEN(prompt2, { timeoutMs = 6e5 } = {}) {
-  if(extension_settings[extensionName]?.mode === "comfyui" && Array.isArray(prompt2)) prompt2=[...prompt2,{role:"system",content:buildSopLlmInstructions(extension_settings[extensionName],getSopStateSnapshot())}];
+function LLM_IMAGE_GEN(prompt2, { timeoutMs = 6e5, structuredTags = false } = {}) {
+  if(!structuredTags && extension_settings[extensionName]?.mode === "comfyui" && Array.isArray(prompt2)) prompt2=[...prompt2,{role:"system",content:buildSopLlmInstructions(extension_settings[extensionName],getSopStateSnapshot())}];
   return new Promise((resolve, reject) => {
     const executeRequestId = generateRequestId7();
     const timer = debugTimer("llmRequest.LLM_IMAGE_GEN", "\u6B63\u6587\u56FE\u7247\u751F\u6210 LLM \u8BF7\u6C42");
@@ -39256,6 +39257,7 @@ async function handleImageToVideoGen(targetEl, imgElement, button, dialogContext
   }
 }
 async function processImageLikeRequest(el, gestureId, requestType, title, llmFunction, options = {}) {
+  const structuredTags = requestType === "image_gen" && extension_settings40[extensionName]?.mode === "comfyui";
   const storyboard = requestType === "image_gen" && options.autoReply === true && String(extension_settings40[extensionName]?.storyboardEnabled ?? "true") === "true";
   const storyboardCount = normalizeStoryboardCount(extension_settings40[extensionName]?.storyboardImageCount ?? 3);
   const targetMessageId = Number(el?.closest?.(".mes")?.getAttribute("mesid"));
@@ -39315,7 +39317,7 @@ async function processImageLikeRequest(el, gestureId, requestType, title, llmFun
   }
   toastr.info(`\u6B63\u5728\u5904\u7406${title}\u8BF7\u6C42...`);
   let context = getContext12();
-  const historyDepth = (extension_settings40[extensionName]?.llm_history_depth ?? 2) + 1;
+  const historyDepth = structuredTags ? 1 : (extension_settings40[extensionName]?.llm_history_depth ?? 2) + 1;
   const keepImageTagInHistory = extension_settings40[extensionName]?.historyKeepImageTag === true;
   debugLog(requestType, "\u83B7\u53D6\u4E0A\u4E0B\u6587", {
     \u5386\u53F2\u5C42\u6570: historyDepth,
@@ -39325,6 +39327,12 @@ async function processImageLikeRequest(el, gestureId, requestType, title, llmFun
   const contextElements = await getElContext(el, historyDepth, { keepImageTagInHistory });
   contextTimer.end(`\u83B7\u53D6\u5230 ${contextElements?.length || 0} \u6761\u4E0A\u4E0B\u6587`);
   const nowtxt = contextElements[contextElements.length - 1];
+  let promt;
+  if (structuredTags) {
+    const settings = extension_settings40[extensionName];
+    promt = structuredImageMessages({body:nowtxt,roles:relevantImageRoles(settings,nowtxt),count:storyboard ? storyboardCount : 1,demand:userDemand});
+    updateCombinedPrompt(promt, "结构化正文配图：仅发送当前正文与相关角色身份，外貌、服装和 LoRA 由程序补全。");
+  } else {
   let triggeredContent = "";
   if (contextElements) {
     const triggerElements = userDemand ? [...contextElements, userDemand] : contextElements;
@@ -39367,7 +39375,7 @@ async function processImageLikeRequest(el, gestureId, requestType, title, llmFun
   });
   const buildTimer = debugTimer("buildPromptForRequestType", "\u6784\u5EFA\u8BF7\u6C42\u7C7B\u578B Prompt");
   debugLog(requestType, "\u6784\u5EFALLM\u63D0\u793A\u8BCD");
-  let promt = buildPromptForRequestType(requestType, entryTriggerText);
+  promt = buildPromptForRequestType(requestType, entryTriggerText);
   buildTimer.end(`\u6D88\u606F\u6570\u91CF: ${promt?.length || 0}`);
   if ((!promt || promt.length === 0) && !storyboard) {
     throw new Error(`\u672A\u80FD\u83B7\u53D6\u5230\u63D0\u793A\u8BCD\uFF0C\u8BF7\u68C0\u67E5 LLM \u8BBE\u7F6E\u4E2D"${title}"\u7684\u4E0A\u4E0B\u6587\u9884\u8BBE\u914D\u7F6E`);
@@ -39524,6 +39532,7 @@ async function processImageLikeRequest(el, gestureId, requestType, title, llmFun
 `;
   }
   updateCombinedPrompt(promt, diagnosticText);
+  }
   const isRegexTestMode = extension_settings40[extensionName]?.regexTestMode ?? false;
   if (isRegexTestMode) {
     debugBranch(requestType, "\u6B63\u5219\u6D4B\u8BD5\u6A21\u5F0F - \u505C\u6B62LLM\u8BF7\u6C42", true);
@@ -39545,7 +39554,28 @@ async function processImageLikeRequest(el, gestureId, requestType, title, llmFun
   let images = [];
   let next_promt = "";
   let cleanedPrompt = "";
-  while (attempt <= maxRetries) {
+  if (structuredTags) {
+    const status = (progress) => {
+      const text = `${progress.stage} · ${progress.accepted}/${progress.count} 张${progress.issue ? ' · '+progress.issue : ''}`;
+      addLog('[正文配图] '+text);
+      const mes = el?.closest?.('.mes');
+      if (mes) {
+        let node = mes.querySelector('.st-chatu8-tag-status');
+        if (!node) {node=document.createElement('div');node.className='st-chatu8-tag-status';node.setAttribute('role','status');el.before(node);}
+        node.textContent=text;
+      }
+    };
+    try {
+      const result = await generateStructuredImageTags({body:nowtxt,settings:extension_settings40[extensionName],count:storyboard ? storyboardCount : 1,demand:userDemand,requestKey:targetMessage,...getImageTags(),isCurrent:targetIsCurrent,onProgress:status,
+        request:messages=>{updateCombinedPrompt(messages,'结构化 JSON 配图请求');return llmFunction(messages,{timeoutMs:6e5,structuredTags:true});}});
+      if(result.testMode)return;
+      images=result.images;
+    } catch(error) {
+      status({stage:'生成 tag 失败',accepted:error.accepted||0,count:storyboard ? storyboardCount : 1,issue:error.message});
+      if(error.name!=='AbortError')toastr.warning(error.message,'正文配图失败');
+      mainTimer.end('生成 tag 失败，未提交 ComfyUI');return;
+    }
+  } else while (attempt <= maxRetries) {
     if (attempt > 0) {
       const retryMsg = `\u672A\u68C0\u6D4B\u5230\u6709\u6548${title}\u6807\u7B7E\uFF0C\u6B63\u5728\u8FDB\u884C\u7B2C ${attempt}/${maxRetries} \u6B21\u91CD\u8BD5...`;
       console.log(`[LLM Parse Retry] ${title} ${retryMsg}`);
@@ -39637,6 +39667,10 @@ async function processImageLikeRequest(el, gestureId, requestType, title, llmFun
     debugLog(requestType, "\u63D2\u5165\u56FE\u7247\u6807\u7B7E\u5230 DOM");
     const insertTimer = debugTimer("insertImagesIntoElement", "\u63D2\u5165\u56FE\u7247\u6807\u7B7E");
     await insertImagesIntoElement(el, images);
+    if (structuredTags) {
+      const node=document.querySelector(`.mes[mesid="${targetMessageId}"] .st-chatu8-tag-status`);
+      if(node)node.textContent='tag 已生成，待生成图片（匹配角色 → 加载 LoRA → 提交 ComfyUI）';
+    }
     insertTimer.end("\u63D2\u5165\u5B8C\u6210");
     const autoClickEnabled = options.tagOnly !== true && String(extension_settings40[extensionName]?.zidongdianji) === "true";
     if (autoClickEnabled) {
@@ -47199,11 +47233,13 @@ async function generateComfyUIImage({ prompt: link, width: Xwidth, height: Xheig
   const maxConcurrency = Math.max(1, Math.min(10, parseInt(generationSettings?.comfyui_max_concurrency, 10) || 10));
   comfyuiConcurrencyLock.setMaxConcurrency(maxConcurrency);
   let lockAcquired = false;
+  let generationStage = '等待生图队列';
   try {
   await acquireComfyUILock(taskId, abortController.signal);
   lockAcquired = true;
   taskQueue.updateStatus(taskId, TaskStatus.RUNNING);
   const startTime = Date.now();
+  generationStage = '匹配角色与穿搭';
   if (!isPluginToastDisabled()) {
     toastr.info(`\u{1F3A8} \u5DF2\u53D1\u8D77 ${taskTypeName} \u8BF7\u6C42...`);
   }
@@ -47310,6 +47346,8 @@ async function generateComfyUIImage({ prompt: link, width: Xwidth, height: Xheig
     }
     sopExpandedTag = reconstructPromptString(expandedData);
   }
+  generationStage = '匹配角色与穿搭';
+  addLog('[正文配图阶段] '+generationStage);
   const sopPlan = await prepareSopGeneration({
     rawTag:sopOriginalTag, preparedTag:characterSelection.tag, expandedTag:sopExpandedTag,
     settings:generationSettings, selection:characterSelection, scenePresetId:_comfyui_yushe_id
@@ -47323,6 +47361,8 @@ async function generateComfyUIImage({ prompt: link, width: Xwidth, height: Xheig
     ...Object.entries(insertions||{}).map(([name,text])=>({name:'提示词替换 '+name,text}))
   ]);
   if(sopPlan.bindings.length || /<(?:lora|wlr):/i.test(sopPlan.positive+", "+sopPlan.negative)) {
+    generationStage = '校验并加载角色 LoRA';
+    addLog('[正文配图阶段] '+generationStage);
     const listResponse = generationSettings.client==='jiuguan'
       ? await fetch('/api/sd/comfy/loras',{method:'POST',headers:getRequestHeaders(window.token),body:JSON.stringify({url}),signal:abortController.signal})
       : await fetch(url.replace(/\/+$/,'')+'/object_info',{headers:getComfyUIHeaders(),signal:abortController.signal});
@@ -47494,6 +47534,8 @@ Scheduler: ${payload.scheduler}
       throw new Error("\u4EFB\u52A1\u5DF2\u53D6\u6D88");
     }
     let imageUrl;
+    generationStage = '提交 ComfyUI 并等待图片';
+    addLog('[正文配图阶段] '+generationStage);
     if (generationSettings.client === "jiuguan") {
       const response = await fetch("/api/sd/comfy/generate", {
         method: "POST",
@@ -47572,6 +47614,8 @@ Scheduler: ${payload.scheduler}
       }
       const r = await response.json();
       let id = r.prompt_id;
+      generationStage = '等待 ComfyUI 图片';
+      addLog('[正文配图阶段] '+generationStage);
       const taskCtx = activeComfyuiTasks.get(taskId);
       if (taskCtx) {
         taskCtx.promptId = id;
@@ -47759,9 +47803,9 @@ Scheduler: ${payload.scheduler}
       toastr.info(`\u5DF2\u53D6\u6D88 ${taskTypeName}`);
     } else {
       taskQueue.completeTask(taskId, false);
-      toastr.error(`${taskTypeName}\u5931\u8D25: ${propagatedMessage}`);
+      toastr.error(`${taskTypeName}\u5931\u8D25（${generationStage}）: ${propagatedMessage}`);
     }
-    addLog(`[ComfyUI \u9519\u8BEF] ${propagatedMessage}`);
+    addLog(`[ComfyUI 错误 · ${generationStage}] ${propagatedMessage}`);
     console.error("Error generating media in ComfyUI:", error);
     throw new Error(propagatedMessage);
   } finally {

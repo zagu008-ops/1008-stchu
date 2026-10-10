@@ -271,3 +271,4 @@
 #wardrobe-root .wardrobe-enabled-roles ul { padding-left:20px; }
 
 #chat .st-chatu8-tag-retry { width:fit-content; min-width:120px; white-space:nowrap; flex:0 0 auto; align-self:flex-start; padding:8px 12px; margin:8px 0; }
+#chat .st-chatu8-tag-status { font-size:12px; opacity:.8; margin:6px 0; overflow-wrap:anywhere; }
