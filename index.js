@@ -2,7 +2,7 @@ import { resolveNativeProfile as cosjiResolveNativeProfile, withCommonPrompts as
 import {resolveWorkflow as cosjiResolveWorkflow} from './cosji-workflow.mjs';
 import {resolveComfySize} from './cosji-size.mjs';
 import {createId as cosjiCreateId} from './cosji-id.mjs';
-import {overrideOutfitTags} from './cosji-outfit-override.mjs';
+import {prepareOutfitSources,findOutfitConflicts} from './cosji-outfit-override.mjs';
 import { initCosji } from './cosji.js';
 import {initHistory,historyStart,historyStep,historyRequest,historyBackend,historyPromptTrace,historyWatchSubmission,historyLLM,openHistory} from './cosji-history.js';
 import {withProgressToast} from './cosji-progress.mjs';
@@ -47311,11 +47311,12 @@ async function generateComfyUIImage({ prompt: link, width: Xwidth, height: Xheig
     activeComfyuiTasks.delete(taskId);
     throw new Error("\u56FA\u5B9A\u63D0\u793A\u8BCD\u9884\u8BBE\u672A\u914D\u7F6E");
   }
-  const _comfyui_preset = diagnosticPreset || cosjiWithCommonPrompts(extension_settings49[extensionName].yushe[_comfyui_yushe_id], extension_settings49[extensionName], _comfyui_yushe_id);
-  const outfitOverride=overrideOutfitTags(modifiedPrompt,diagnosticPreset||extension_settings49[extensionName].yushe[_comfyui_yushe_id],extension_settings49[extensionName].cosji?.outfitOverride===true);
+  const outfitPreset=diagnosticPreset||extension_settings49[extensionName].yushe[_comfyui_yushe_id];
+  const outfitOverride=prepareOutfitSources({prompt:modifiedPrompt,preset:outfitPreset,settings:extension_settings49[extensionName],presetId:_comfyui_yushe_id,insertions,enabled:!diagnosticPreset&&extension_settings49[extensionName].cosji?.outfitOverride===true});
+  const _comfyui_preset=diagnosticPreset||outfitOverride.preset;
   historyPromptTrace(historyRequestId,'预设服装覆盖 LLM 服装',{
     开关:extension_settings49[extensionName].cosji?.outfitOverride===true,已执行:outfitOverride.applied,
-    移除的服装Tag:outfitOverride.removed,覆盖前:modifiedPrompt,覆盖后:outfitOverride.prompt,说明:outfitOverride.reason||'保留场景与动作，再合并所选服装预设'
+    移除的服装Tag:outfitOverride.removed,各来源移除:outfitOverride.removedBySource,覆盖前:modifiedPrompt,覆盖后:outfitOverride.prompt,说明:outfitOverride.reason||'过滤各来源服装，再合并所选服装预设；最终冲突仅提示，继续生成'
   });
   modifiedPrompt=outfitOverride.prompt;
   historyPromptTrace(historyRequestId,'公共、角色与服装预设合并',{
@@ -47329,9 +47330,12 @@ async function generateComfyUIImage({ prompt: link, width: Xwidth, height: Xheig
     _comfyui_preset.fixedPrompt,
     modifiedPrompt,
     _comfyui_preset.fixedPrompt_end,
-    extension_settings49[extensionName].AQT_comfyui,
-    insertions
+    diagnosticPreset?extension_settings49[extensionName].AQT_comfyui:outfitOverride.quality,
+    outfitOverride.insertions
   );
+  const outfitConflicts=outfitOverride.applied?findOutfitConflicts(prompt2,outfitPreset):[];
+  historyPromptTrace(historyRequestId,'最终服装冲突检查',{覆盖已执行:outfitOverride.applied,疑似冲突Tag:outfitConflicts,处理:'提示冲突，但继续生成',说明:'按标签识别检查；LoRA 和模型效果仍可能影响服装，不保证图像完全一致'});
+  if(outfitConflicts.length)toastr.warning(`最终提示词含 ${outfitConflicts.length} 个疑似服装冲突，详情见任务历史；继续生成。`,'服装冲突提示');
   historyPromptTrace(historyRequestId,'正向提示词组合完成',{正向:prompt2});
   const promptBeforeLora=prompt2;
   prompt2 = replaceLoraTags(prompt2);
