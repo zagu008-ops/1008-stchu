@@ -9,7 +9,7 @@ SillyTavern 图片生成扩展，基于 st-chatu8 3.1.4。原作者与授权信�
 
 ## 安装
 
-内部扩展 ID 和资源目录为 `1011-st`。请在酒馆用户扩展目录中执行：
+内部设置 ID 为 `1011-st`，资源路径自动适配安装目录；已有 `1008-stchu` 安装可以直接更新 `main`。新安装可在酒馆用户扩展目录中执行：
 
 ```sh
 git clone --branch main https://github.com/zagu008-ops/1008-stchu.git 1011-st
