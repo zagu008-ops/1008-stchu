@@ -1,3 +1,4 @@
+import {createId} from './cosji-id.mjs';
 const terminal = new Set(['success','failed','cancelled','interrupted']);
 export function historyPage(rows,page=1,size=10){
     size=[10,20,50].includes(Number(size))?Number(size):10;
@@ -23,7 +24,7 @@ export function createHistory(settings, save=()=>{}, changed=()=>{}) {
         row.events=row.events.slice(-60);persist();
     }
     function start(kind,info={},parent='') {
-        const id=globalThis.crypto.randomUUID();
+        const id=createId();
         rows.unshift({id,kind,parent,created:Date.now(),updated:Date.now(),state:'running',stage:'已接收点击',info,events:[]});
         // Keep active tasks so long requests cannot disappear under newer clicks.
         const completed=rows.filter(r=>terminal.has(r.state));

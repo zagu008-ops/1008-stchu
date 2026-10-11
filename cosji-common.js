@@ -1,4 +1,5 @@
 import {splitLoras,joinLoras} from './cosji-core.mjs';
+import {createId} from './cosji-id.mjs';
 const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 export function normalizeCommon(value={}){
     const parsed=splitLoras({fixedPrompt:value.positive,negativePrompt:value.negative});
@@ -46,7 +47,7 @@ export function createCommonEditors({catalog,save,ask,changed}){
                     const name=await ask('公共预设名称',action==='copy'?s.draft.name+' 副本':'');if(!name)return;
                     if(Object.values(s.library.presets).some(p=>p.name===name))throw new Error('同名公共预设已存在');
                     if(action==='copy')joinLoras({loras:s.draft.loras});
-                    const id=crypto.randomUUID();s.library.presets[id]=action==='copy'?{...structuredClone(s.draft),name}:{name,positive:'',negative:'',loras:[]};s.library.selected=id;s.draft=structuredClone(s.library.presets[id]);s.dirty=false;
+                    const id=createId();s.library.presets[id]=action==='copy'?{...structuredClone(s.draft),name}:{name,positive:'',negative:'',loras:[]};s.library.selected=id;s.draft=structuredClone(s.library.presets[id]);s.dirty=false;
                 }
                 if(action==='rename'){const name=await ask('公共预设名称',s.draft.name);if(!name)return;if(Object.entries(s.library.presets).some(([id,p])=>id!==s.library.selected&&p.name===name))throw new Error('同名公共预设已存在');s.library.presets[s.library.selected].name=name;s.draft.name=name;}
                 if(action==='delete'){

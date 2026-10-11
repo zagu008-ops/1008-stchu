@@ -1,6 +1,7 @@
 import { resolveNativeProfile as cosjiResolveNativeProfile, withCommonPrompts as cosjiWithCommonPrompts } from './cosji-core.mjs';
 import {resolveWorkflow as cosjiResolveWorkflow} from './cosji-workflow.mjs';
 import {resolveComfySize} from './cosji-size.mjs';
+import {createId as cosjiCreateId} from './cosji-id.mjs';
 import {overrideOutfitTags} from './cosji-outfit-override.mjs';
 import { initCosji } from './cosji.js';
 import {initHistory,historyStart,historyStep,historyRequest,historyBackend,historyPromptTrace,historyWatchSubmission,historyLLM,openHistory} from './cosji-history.js';
@@ -38918,7 +38919,7 @@ async function runCosjiGenerationTest(historyId) {
   if(!parsed.length)throw new Error('中性测试 LLM 回复未通过实际图片解析器');
   if(!/apple/i.test(parsed[0].tag))throw new Error('测试回复偏离苹果静物场景，未提交生图');
   historyStep(historyId,'中性测试：解析成功，提交 ComfyUI',{识别图片数:1});
-  const requestId='cosji-test-'+crypto.randomUUID();
+  const requestId='cosji-test-'+cosjiCreateId();
   const testWidth=Number(extension_settings40[extensionName].comfyui_width),testHeight=Number(extension_settings40[extensionName].comfyui_height);
   historyRequest({id:requestId,prompt:parsed[0].tag,width:testWidth,height:testHeight,cosjiHistoryId:historyId});
   const result=await generateComfyUIImage({prompt:parsed[0].tag,width:testWidth,height:testHeight,historyRequestId:requestId,diagnosticPreset:{fixedPrompt:'',fixedPrompt_end:'',negativePrompt:'people, person, text, watermark'}});
