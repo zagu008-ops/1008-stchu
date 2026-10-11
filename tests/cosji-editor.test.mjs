@@ -1,0 +1,13 @@
+import assert from 'node:assert/strict';
+import {fitCosjiEditor,closeCosjiQuick} from '../cosji-editor.mjs';
+const listeners=new Map(),viewport={width:393,height:720,offsetTop:40,offsetLeft:3,addEventListener:(n,f)=>listeners.set('v-'+n,f)};
+const view={innerWidth:400,innerHeight:850,visualViewport:viewport,addEventListener:(n,f)=>listeners.set(n,f)};
+const modal={style:{display:'none'}};
+fitCosjiEditor(modal,view);
+assert.deepEqual(modal.style,{display:'none',top:'40px',left:'3px',width:'393px',height:'720px'});
+viewport.height=360;viewport.offsetTop=90;listeners.get('v-resize')();
+assert.equal(modal.style.height,'360px');assert.equal(modal.style.top,'90px');
+const popup={hidden:false};closeCosjiQuick({getElementById:()=>popup});assert.equal(popup.hidden,true);
+closeCosjiQuick({getElementById:()=>null});
+delete view.visualViewport;listeners.get('resize')();assert.equal(modal.style.height,'850px');
+console.log('PASS: editor uses visible viewport with keyboard/offset changes; opening editor dismisses quick window');

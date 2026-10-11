@@ -1,4 +1,5 @@
 import {mountCosjiFloating} from './cosji-floating.mjs';
+import {fitCosjiEditor,closeCosjiQuick} from './cosji-editor.mjs';
 import {PROMPT_FIELDS, splitLoras, joinLoras, migrateCatalog, normalizeComfyUrl, resolveNativeProfile, withCommonPrompts} from './cosji-core.mjs';
 import {createId} from './cosji-id.mjs';
 import {fetchCivitModel, planCivitImport, commitCivitImport} from './cosji-civit.mjs';
@@ -33,6 +34,7 @@ export function initCosji({settings, save, context, headers, refreshLLM, gallery
     styles.rel = 'stylesheet';
     styles.href = new URL('./cosji.css', import.meta.url).href;
     document.head.append(styles);
+    fitCosjiEditor(document.getElementById('ch-settings-modal'));
     const panel = document.createElement('div');
     panel.id = 'st-chatu8-tab-cosji';
     panel.className = 'st-chatu8-tab-content cosji-panel';
@@ -44,6 +46,7 @@ export function initCosji({settings, save, context, headers, refreshLLM, gallery
     nav.textContent = '角色 / 服装';
     document.querySelector('.st-chatu8-sidebar .st-chatu8-nav-link').before(nav);
     const showEditor = () => {
+        closeCosjiQuick(document);
         document.querySelectorAll('.st-chatu8-nav-link, .st-chatu8-tab-content').forEach(el => el.classList.remove('active'));
         panel.classList.add('active'); nav.classList.add('active');
         document.querySelector('#ch-settings-modal').style.display = 'grid';
@@ -310,9 +313,12 @@ export function initCosji({settings, save, context, headers, refreshLLM, gallery
         const selectedRole=quickRole||catalog.presetRoles[selected] || catalog.selectedRole;
         const q=quick.querySelector('#cosji-quick-panel');
         const sizeControls=`<details><summary>生图尺寸 · ${esc(settings.comfyui_width)} × ${esc(settings.comfyui_height)}</summary><label>尺寸来源<select id="cosji-quick-size-mode">${option('fixed','固定使用设置尺寸',String(settings.aiAutonomousResolution)==='false'?'fixed':'ai')}${option('ai','允许 AI 决定尺寸',String(settings.aiAutonomousResolution)==='false'?'fixed':'ai')}</select></label><label>宽<input id="cosji-quick-width" type="number" min="64" max="8192" step="8" value="${esc(settings.comfyui_width)}"></label><label>高<input id="cosji-quick-height" type="number" min="64" max="8192" step="8" value="${esc(settings.comfyui_height)}"></label><button type="button" id="cosji-quick-size-save">应用尺寸</button><span id="cosji-quick-size-status"></span></details>`;
-        q.innerHTML=`<strong>角色 / 服装</strong><label>角色${quickPicker("role","选择角色",selectedRole,catalog.roles.map(r=>({value:r.id,text:r.name})))}</label><label>服装${quickPicker("outfit","选择服装",selected,namesFor(selectedRole).map(n=>({value:n,text:outfitName(n)})))}</label><div class="cosji-cover-row">${previewMarkup(settings.yushe[selected],true)}<span>当前：${esc(outfitName(selected))}</span></div><label style="display:flex;align-items:center;gap:8px"><input style="width:auto" type="checkbox" id="cosji-quick-outfit-override" ${catalog.outfitOverride===true?'checked':''}>预设服装覆盖 LLM 服装</label><small id="cosji-quick-override-status">${catalog.outfitOverride===true?'已开启：后续新生成以预设服装为准':'关闭时保留 LLM 服装并合并预设'}</small>${sizeControls}<button type="button" id="cosji-quick-edit">编辑预设</button>`;
+        q.innerHTML=`<div class="cosji-quick-header"><strong>角色 / 服装</strong><button type="button" data-cosji-close-quick aria-label="关闭快捷窗口">×</button></div><label>角色${quickPicker("role","选择角色",selectedRole,catalog.roles.map(r=>({value:r.id,text:r.name})))}</label><label>服装${quickPicker("outfit","选择服装",selected,namesFor(selectedRole).map(n=>({value:n,text:outfitName(n)})))}</label><div class="cosji-cover-row">${previewMarkup(settings.yushe[selected],true)}<span>当前：${esc(outfitName(selected))}</span></div><label style="display:flex;align-items:center;gap:8px"><input style="width:auto" type="checkbox" id="cosji-quick-outfit-override" ${catalog.outfitOverride===true?'checked':''}>预设服装覆盖 LLM 服装</label><small id="cosji-quick-override-status">${catalog.outfitOverride===true?'已开启：后续新生成以预设服装为准':'关闭时保留 LLM 服装并合并预设'}</small>${sizeControls}<button type="button" id="cosji-quick-edit">编辑预设</button>`;
     }
-    quick.addEventListener('click',e=>{if(e.target.id==='cosji-quick-edit')showEditor();});
+    quick.addEventListener('click',e=>{
+        if(e.target.id==='cosji-quick-edit')showEditor();
+        if(e.target.closest('[data-cosji-close-quick]'))closeCosjiQuick(document);
+    });
     quick.addEventListener('change',e=>{
         if(e.target.id!=='cosji-quick-outfit-override')return;
         catalog.outfitOverride=e.target.checked;save();
