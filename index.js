@@ -2326,7 +2326,7 @@ var init_config = __esm({
     init_themePresets();
     init_defaultToolCallConfig();
     extensionName = "1011-st";
-    extensionFolderPath = `scripts/extensions/third-party/${extensionName}`;
+    extensionFolderPath = new URL('.', import.meta.url).pathname.replace(/\/$/, '');
     EventType = {
       GENERATE_IMAGE_REQUEST: "generate-image-request",
       GENERATE_IMAGE_RESPONSE: "generate-image-response"
@@ -79827,7 +79827,7 @@ function initAiAssistant(modal) {
       return;
     }
     const chatBody = dom.chatBody;
-    const icon = '<img src="/scripts/extensions/third-party/1011-st/html/settings/cos姬\u5934\u50CF.png" alt="cos姬" style="width: 100%; height: 100%; object-fit: cover; border-radius: 50%; image-rendering: -webkit-optimize-contrast; image-rendering: crisp-edges;">';
+    const icon = `<img src="${extensionFolderPath}/html/settings/cos姬\u5934\u50CF.png" alt="cos姬" style="width: 100%; height: 100%; object-fit: cover; border-radius: 50%; image-rendering: -webkit-optimize-contrast; image-rendering: crisp-edges;">`;
     const messageHtml = `
             <div class="st-chatu8-ai-msg system-msg">
                 <div class="msg-avatar">${icon}</div>

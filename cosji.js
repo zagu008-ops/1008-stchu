@@ -29,7 +29,7 @@ export function initCosji({settings, save, context, headers, refreshLLM, gallery
     document.getElementById('ch-update-indicator')?.remove();
     const styles = document.createElement('link');
     styles.rel = 'stylesheet';
-    styles.href = 'scripts/extensions/third-party/1011-st/cosji.css';
+    styles.href = new URL('./cosji.css', import.meta.url).href;
     document.head.append(styles);
     const panel = document.createElement('div');
     panel.id = 'st-chatu8-tab-cosji';
