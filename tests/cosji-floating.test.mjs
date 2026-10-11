@@ -25,6 +25,8 @@ const mouse=fixture();
 mouse.button.emit('mousedown',{clientX:340,clientY:660});
 mouse.doc.emit('mousemove',{clientX:200,clientY:200});
 assert.equal(mouse.quick.style.left,'176px');assert.equal(mouse.quick.style.top,'176px');
+assert.equal(parseFloat(mouse.quick.style.left)+parseFloat(mouse.popup.style.left),128);
+assert.equal(parseFloat(mouse.quick.style.left)+parseFloat(mouse.popup.style.left)+parseFloat(mouse.popup.style.width),388);
 mouse.doc.emit('mouseup');
 assert.equal(mouse.button.emit('click').prevented,true);assert.equal(mouse.clicks(),0);
 assert.equal(mouse.doc.handlers.get('mousemove').size,0);

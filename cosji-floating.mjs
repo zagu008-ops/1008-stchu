@@ -19,10 +19,12 @@ export function mountCosjiFloating(quick, button, popup, activate, view = window
         const y = clamp(position ? position.y*b.maxY : b.height-164,b.maxY);
         quick.style.left = b.ox+x+'px'; quick.style.right = 'auto';
         quick.style.top = b.oy+y+'px'; quick.style.bottom = 'auto';
-        popup.style.width = Math.max(0,Math.min(260,b.width-24))+'px';
+        const popupWidth = Math.max(0,Math.min(260,b.width-24));
+        popup.style.width = popupWidth+'px';
         popup.style.boxSizing = 'border-box';
-        popup.style.left = x<b.width/2 ? '0' : 'auto';
-        popup.style.right = x<b.width/2 ? 'auto' : '0';
+        // A wide popup must stay visible even when the button is near the middle.
+        popup.style.left = clamp(x,Math.max(0,b.width-popupWidth-12))-x+'px';
+        popup.style.right = 'auto';
         const below = y<b.height/2;
         popup.style.top = below ? b.size.height+12+'px' : 'auto';
         popup.style.bottom = below ? 'auto' : b.size.height+12+'px';
