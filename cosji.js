@@ -297,13 +297,57 @@ export function initCosji({settings, save, context, headers, refreshLLM, gallery
     document.body.append(quick);
     // SillyTavern can transform a zero-height HTML root: bottom-based fixed
     // positioning then places this control above the visible browser viewport.
+    const quickToggle=quick.querySelector('#cosji-quick-toggle');
+    const positionKey='cosji-quick-position';
+    let quickPosition=null,quickDrag=null,suppressQuickClick=false;
+    try{const saved=JSON.parse(localStorage.getItem(positionKey));if(saved&&Number.isFinite(saved.x)&&Number.isFinite(saved.y))quickPosition=saved;}catch{}
     const placeQuick=()=>{
-        const height=window.visualViewport?.height||window.innerHeight;
-        const offset=window.visualViewport?.offsetTop||0;
-        quick.style.top=Math.max(12,offset+height-164)+'px';
-        quick.style.bottom='auto';
-        quick.querySelector('#cosji-quick-panel').style.maxHeight=Math.max(120,height-190)+'px';
+        const viewport=window.visualViewport;
+        const height=viewport?.height||window.innerHeight,width=viewport?.width||window.innerWidth;
+        const offsetY=viewport?.offsetTop||0,offsetX=viewport?.offsetLeft||0;
+        const size=quickToggle.getBoundingClientRect();
+        const maxX=Math.max(0,width-size.width-12),maxY=Math.max(0,height-size.height-12);
+        const x=Math.min(maxX,Math.max(Math.min(12,maxX),quickPosition?quickPosition.x*maxX:width-size.width-20));
+        const y=Math.min(maxY,Math.max(Math.min(12,maxY),quickPosition?quickPosition.y*maxY:height-164));
+        quick.style.left=offsetX+x+'px';quick.style.right='auto';
+        quick.style.top=offsetY+y+'px';quick.style.bottom='auto';
+        const popup=quick.querySelector('#cosji-quick-panel');
+        popup.style.width=Math.max(0,Math.min(260,width-24))+'px';popup.style.boxSizing='border-box';
+        popup.style.left=x<width/2?'0':'auto';popup.style.right=x<width/2?'auto':'0';
+        const below=y<height/2;
+        popup.style.top=below?size.height+12+'px':'auto';popup.style.bottom=below?'auto':size.height+12+'px';
+        popup.style.maxHeight=Math.max(0,(below?height-y-size.height:y)-24)+'px';
+        popup.style.overflowY='auto';
     };
+    quickToggle.style.touchAction='none';quickToggle.style.userSelect='none';
+    quickToggle.addEventListener('pointerdown',e=>{
+        if(!e.isPrimary||e.button!==0)return;
+        suppressQuickClick=false;
+        const rect=quickToggle.getBoundingClientRect();
+        quickDrag={id:e.pointerId,startX:e.clientX,startY:e.clientY,x:rect.left,y:rect.top,moved:false};
+        quickToggle.setPointerCapture(e.pointerId);
+    });
+    quickToggle.addEventListener('pointermove',e=>{
+        if(!quickDrag||quickDrag.id!==e.pointerId)return;
+        const dx=e.clientX-quickDrag.startX,dy=e.clientY-quickDrag.startY;
+        if(!quickDrag.moved&&Math.hypot(dx,dy)<6)return;
+        quickDrag.moved=true;suppressQuickClick=true;
+        const viewport=window.visualViewport;
+        const width=viewport?.width||window.innerWidth,height=viewport?.height||window.innerHeight;
+        const rect=quickToggle.getBoundingClientRect();
+        const maxX=Math.max(1,width-rect.width-12),maxY=Math.max(1,height-rect.height-12);
+        quickPosition={x:Math.min(1,Math.max(0,(quickDrag.x+dx-(viewport?.offsetLeft||0))/maxX)),y:Math.min(1,Math.max(0,(quickDrag.y+dy-(viewport?.offsetTop||0))/maxY))};
+        placeQuick();e.preventDefault();
+    });
+    const finishQuickDrag=e=>{
+        if(!quickDrag||quickDrag.id!==e.pointerId)return;
+        if(quickDrag.moved){try{localStorage.setItem(positionKey,JSON.stringify(quickPosition));}catch{}}
+        quickDrag=null;
+        if(quickToggle.hasPointerCapture(e.pointerId))quickToggle.releasePointerCapture(e.pointerId);
+    };
+    quickToggle.addEventListener('pointerup',finishQuickDrag);
+    quickToggle.addEventListener('pointercancel',finishQuickDrag);
+    quickToggle.addEventListener('lostpointercapture',finishQuickDrag);
     placeQuick();window.addEventListener('resize',placeQuick);
     window.visualViewport?.addEventListener('resize',placeQuick);
     window.visualViewport?.addEventListener('scroll',placeQuick);
@@ -316,7 +360,7 @@ export function initCosji({settings, save, context, headers, refreshLLM, gallery
         const sizeControls=`<details><summary>生图尺寸 · ${esc(settings.comfyui_width)} × ${esc(settings.comfyui_height)}</summary><label>尺寸来源<select id="cosji-quick-size-mode">${option('fixed','固定使用设置尺寸',String(settings.aiAutonomousResolution)==='false'?'fixed':'ai')}${option('ai','允许 AI 决定尺寸',String(settings.aiAutonomousResolution)==='false'?'fixed':'ai')}</select></label><label>宽<input id="cosji-quick-width" type="number" min="64" max="8192" step="8" value="${esc(settings.comfyui_width)}"></label><label>高<input id="cosji-quick-height" type="number" min="64" max="8192" step="8" value="${esc(settings.comfyui_height)}"></label><button type="button" id="cosji-quick-size-save">应用尺寸</button><span id="cosji-quick-size-status"></span></details>`;
         q.innerHTML=`<strong>角色 / 服装</strong><label>角色${quickPicker("role","选择角色",selectedRole,catalog.roles.map(r=>({value:r.id,text:r.name})))}</label><label>服装${quickPicker("outfit","选择服装",selected,namesFor(selectedRole).map(n=>({value:n,text:outfitName(n)})))}</label><div class="cosji-cover-row">${previewMarkup(settings.yushe[selected],true)}<span>当前：${esc(outfitName(selected))}</span></div><label style="display:flex;align-items:center;gap:8px"><input style="width:auto" type="checkbox" id="cosji-quick-outfit-override" ${catalog.outfitOverride===true?'checked':''}>预设服装覆盖 LLM 服装</label><small id="cosji-quick-override-status">${catalog.outfitOverride===true?'已开启：后续新生成以预设服装为准':'关闭时保留 LLM 服装并合并预设'}</small>${sizeControls}<button type="button" id="cosji-quick-edit">编辑预设</button>`;
     }
-    quick.querySelector('#cosji-quick-toggle').addEventListener('click',()=>{const p=quick.querySelector('#cosji-quick-panel');p.hidden=!p.hidden;if(!p.hidden)renderQuick();});
+    quickToggle.addEventListener('click',e=>{if(suppressQuickClick&&e.detail!==0){suppressQuickClick=false;return;}suppressQuickClick=false;const p=quick.querySelector('#cosji-quick-panel');p.hidden=!p.hidden;if(!p.hidden){renderQuick();placeQuick();}});
     quick.addEventListener('click',e=>{if(e.target.id==='cosji-quick-edit')showEditor();});
     quick.addEventListener('change',e=>{
         if(e.target.id!=='cosji-quick-outfit-override')return;
