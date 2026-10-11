@@ -71,18 +71,6 @@
             </div>
         </div>
         <div class="st-chatu8-field">
-            <label for="storyboardEnabled">连续剧情分镜（每次 AI 回复）</label>
-            <div class="st-chatu8-toggle">
-                <input id="storyboardEnabled" type="checkbox" />
-                <span class="st-chatu8-slider"></span>
-            </div>
-        </div>
-        <div class="st-chatu8-field">
-            <label for="storyboardImageCount">每次回复的分镜张数</label>
-            <input type="number" id="storyboardImageCount" class="st-chatu8-text-input" min="1" max="6" step="1" value="3">
-        </div>
-        <p>连续分镜需开启“启用插件”和“自动LLM请求生图”，并配置 LLM 与生图服务。按当前回复的剧情顺序规划 1～6 张画面，重复人物与场景特征以保持连续性。数量、重复提示词或原文位置校验失败时会有限重试；仍失败则不提交生图。开启“自动点击生成”后才会自动请求图片，否则先显示生成按钮。关闭连续分镜恢复原预设的张数规则。</p>
-        <div class="st-chatu8-field">
             <label for="zidongdianji">自动点击生成</label>
             <div class="st-chatu8-toggle">
                 <input id="zidongdianji" type="checkbox" />

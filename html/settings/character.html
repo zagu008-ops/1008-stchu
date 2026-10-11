@@ -15,11 +15,6 @@
         <!-- 预设管理 -->
         <div class="st-chatu8-settings-section">
             <h3>角色预设</h3>
-            <div class="st-chatu8-field-col">
-                <button type="button" id="character_sync" class="st-chatu8-btn st-chatu8-btn-primary">同步 · 按当前角色卡</button>
-                <label class="st-chatu8-checkbox-label"><input type="checkbox" id="character_sync_auto">聊天回复后自动检测角色（先预览确认）</label>
-                <p>角色卡优先，世界书补充，正文检测出场人物。同名角色共用预设；首次请点同步选择 API 和模型。</p>
-            </div>
             <div class="st-chatu8-field">
                 <label for="character_preset_id">当前预设</label>
                 <div class="st-chatu8-profile-controls">
@@ -136,13 +131,12 @@
         <div class="st-chatu8-settings-section">
             <h3>角色详细参数</h3>
             <div class="st-chatu8-field-col">
-                <label for="char_nameCN">中文名称 / 别名（用 | 分隔）</label>
-                <input type="text" id="char_nameCN" class="st-chatu8-text-input" placeholder="例如：星野遥|星野瑶|星野学姐" />
+                <label for="char_nameCN">角色中文名称</label>
+                <input type="text" id="char_nameCN" class="st-chatu8-text-input" />
             </div>
             <div class="st-chatu8-field-col">
-                <label for="char_nameEN">英文名称 / 别名（用 | 分隔）</label>
-                <input type="text" id="char_nameEN" class="st-chatu8-text-input" placeholder="例如：Hoshino Haruka|Haruka Hoshino" />
-                <p>与角色衣橱共用资料；中文名、英文名及别名任一命中即可识别。角色需加入当前启用或通用角色列表。</p>
+                <label for="char_nameEN">角色英文名称</label>
+                <input type="text" id="char_nameEN" class="st-chatu8-text-input" />
             </div>
 
             <!-- 全身组合 Token 统计 -->
@@ -316,10 +310,6 @@
                 <button class="st-chatu8-btn" id="outfit_photo_upload" style="margin-top: 10px;">
                     <i class="fa-solid fa-upload"></i> 上传照片
                 </button>
-                <button type="button" class="st-chatu8-btn" id="outfit_photo_reverse" style="margin-top: 10px;">
-                    <i class="fa-solid fa-eye"></i> 从图片反推
-                </button>
-                <p style="font-size: 0.85em; opacity: 0.8; text-align: center;">直接识别当前服装照片，可选择 API 和模型；预览确认后保存服装字段。</p>
                 <div class="st-chatu8-field" style="margin-top: 10px; display: flex; align-items: center; gap: 10px;">
                     <label for="outfit_send_photo" class="st-chatu8-checkbox-label" style="margin: 0; display: flex; align-items: center; gap: 8px; cursor: pointer;">
                         <input type="checkbox" id="outfit_send_photo" class="st-chatu8-checkbox">

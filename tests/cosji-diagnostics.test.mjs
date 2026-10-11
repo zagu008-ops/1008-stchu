@@ -1,0 +1,10 @@
+import assert from 'node:assert/strict';
+import {inspectConfiguration} from '../cosji-diagnostics.mjs';
+const info={CheckpointLoaderSimple:{input:{required:{ckpt_name:[['only.safetensors']]}}},KSampler:{input:{required:{sampler_name:[['euler']],scheduler:[['normal']]}}}};
+const s={MODEL_NAME:'连接后选择',comfyuisamplerName:'连接后选择',comfyui_scheduler:'连接后选择',worker:JSON.stringify({one:{class_type:'KSampler'}})};
+const report=inspectConfiguration(s,info);assert.equal(report.problems.length,3);assert.equal(report.repair.MODEL_NAME,'only.safetensors');
+assert.equal(s.MODEL_NAME,'连接后选择','inspection does not mutate settings');
+Object.assign(s,report.repair);assert.deepEqual(inspectConfiguration(s,info).problems,[]);
+info.CheckpointLoaderSimple.input.required.ckpt_name[0].push('second');s.MODEL_NAME='missing';assert.equal(inspectConfiguration(s,info).repair.MODEL_NAME,undefined,'multiple models require a user choice');
+s.worker=JSON.stringify({one:{class_type:'MissingNode'}});assert.deepEqual(inspectConfiguration(s,info).missing,['MissingNode']);
+console.log('PASS: placeholders, unique model repair, valid sampler defaults, no mutation, multiple-model choice and missing nodes');

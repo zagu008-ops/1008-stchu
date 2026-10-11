@@ -1,0 +1,18 @@
+import assert from 'node:assert/strict';
+import {inspectLoras,copyForAddress,availableAt} from '../cosji-address.mjs';
+const original={fixedPrompt:'character, outfit, <lora:folder\\shared.safetensors:0.8>',fixedPrompt_end:'detail, <lora:missing.safetensors:0.7:0.5>',negativePrompt:'bad',cosjiPreview:{dataUrl:'example'}};
+const before=structuredClone(original),names=['folder/shared.safetensors','replacement.safetensors'];
+assert.equal(inspectLoras(original,names)[0].availableName,names[0]);
+assert.equal(inspectLoras(original,names)[1].availableName,null);
+assert.throws(()=>copyForAddress(original,'http://localhost:8188',names,{}),/missing/);
+const replaced=copyForAddress(original,'http://localhost:8188/',names,{1:'replacement.safetensors'});
+assert.equal(replaced.fixedPrompt,'character, outfit, <lora:folder/shared.safetensors:0.8>');
+assert.equal(replaced.fixedPrompt_end,'detail, <lora:replacement.safetensors:0.7:0.5>');
+assert.equal(replaced.negativePrompt,'bad');assert.deepEqual(original,before);
+const removed=copyForAddress(original,'http://localhost:8188',names,{1:'__remove__'});
+assert.equal(removed.fixedPrompt_end,'detail');assert.equal(removed.cosjiLoras.length,1);
+assert.equal(availableAt(replaced,'http://localhost:8188/'),true);
+assert.equal(availableAt(replaced,'http://other:8188'),false);
+assert.equal(availableAt(original,'http://other:8188'),true);
+assert.throws(()=>copyForAddress(original,'http://localhost:8188',names,{1:'invented.safetensors'}));
+console.log('PASS: exact path detection, explicit missing LoRA resolution, unchanged source prompts, preserved weights, address filtering');

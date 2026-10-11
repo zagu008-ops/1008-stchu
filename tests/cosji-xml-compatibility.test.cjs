@@ -1,0 +1,14 @@
+const fs=require('node:fs'),assert=require('node:assert/strict');
+const source=fs.readFileSync('./index.js','utf8');
+const start=source.indexOf('function convertNewXmlFormatToOld('),end=source.indexOf('\nfunction parseImagesFromPrompt',start);
+const convert=new Function(source.slice(start,end)+';return convertNewXmlFormatToOld;')();
+const xml='<image><regex>apple sentence</regex><prompts>red apple, table</prompts></image>';
+const one=convert(xml);assert.match(one,/regex:apple sentence/);assert.match(one,/image###red apple, table###/);
+assert.equal((convert(xml.repeat(3)).match(/image###/g)||[]).length,3,'standalone image blocks are all converted');
+assert.equal((convert('<images>'+xml+'</images>\n<images>'+xml+'</images>').match(/image###/g)||[]).length,2,'every complete container is handled');
+assert.match(convert('<images>'+xml),/image###red apple/,'complete image survives an incomplete outer container');
+const old='<image>regex:apple sentence\nimage###red apple###</image>';assert.equal(convert(old),old);
+assert.equal(convert('unrelated text'), 'unrelated text');
+const missing='<image><prompts>red apple</prompts></image>';assert.ok(!convert(missing).includes('regex:'),'missing location is never invented');
+assert.equal(convert('<image><regex>apple</regex><prompts>red apple'),'<image><regex>apple</regex><prompts>red apple','incomplete image is not silently repaired');
+console.log('PASS: standalone and multiple XML image blocks, incomplete outer container, legacy preservation and missing-field handling');

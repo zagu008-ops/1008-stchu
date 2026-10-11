@@ -1,0 +1,36 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import {pathToFileURL} from 'node:url';
+import path from 'node:path';
+const folder=path.resolve('.');
+let source=fs.readFileSync(path.join(folder,'cosji-history.js'),'utf8');
+for(const name of ['cosji-history.mjs','cosji-diagnostics.mjs'])source=source.replace(`'./${name}'`,JSON.stringify(pathToFileURL(path.join(folder,name)).href));
+source=source.replace("import {eventSource} from '../../../../script.js';",'const eventSource=globalThis.testEvents;');
+const handlers={};globalThis.testEvents={on:(name,fn)=>handlers[name]=fn};
+globalThis.document={createElement:()=>({dataset:{},classList:{contains:()=>false},addEventListener(){}}),querySelector:()=>({append(){},before(){}})};
+const interval=globalThis.setInterval,timeout=globalThis.setTimeout;
+globalThis.setInterval=()=>0;globalThis.setTimeout=()=>0;
+try{
+ const m=await import('data:text/javascript;base64,'+Buffer.from(source).toString('base64'));
+ const s={cosji:{},scriptEnabled:'true',llm_profiles:{}};m.initHistory(s,()=>{});
+ const root=m.historyStart('提示词');m.historyStep(root,'已解析',{识别图片数:2});
+ const first=m.historyRequest({id:'one',cosjiHistoryId:root,prompt:'landscape'});
+ assert.equal(m.historyRequest({id:'one',cosjiHistoryId:root}),first,'in-flight request is not duplicated');
+ m.historyBackend('one','等待 ComfyUI',{ComfyUI任务ID:'server-one'});
+ m.historyPromptTrace('one','替换',{替换前:'apple',替换后:'red apple'});
+ m.historyPromptTrace('one','最终',{最终正向:'<wlr:style:1:1:1>, red apple',最终负向:'text'});
+ assert.equal(s.cosji.taskHistory.find(r=>r.id===first).info.promptTrace.length,2);
+ assert.equal(s.cosji.taskHistory.find(r=>r.id===first).info.promptTrace[0].values.替换前,'apple');
+ m.historyPromptTrace('unknown','忽略',{});
+ m.historyRequest({id:'two',cosjiHistoryId:root,prompt:'landscape two'});
+ handlers['generate-image-response']({id:'one',success:true,imageData:'data:image/png;base64,test'});
+ assert.equal(s.cosji.taskHistory.find(r=>r.id===root).state,'running','one image cannot complete a two-image request');
+ handlers['generate-image-response']({id:'two',success:false,error:'node failure token=SECRET'});
+ assert.equal(s.cosji.taskHistory.find(r=>r.id===root).state,'failed');
+ assert.equal(s.cosji.taskHistory.find(r=>r.id===first).info.ComfyUI任务ID,'server-one');
+ assert.ok(!JSON.stringify(s.cosji.taskHistory).includes('SECRET'));
+ const third=m.historyRequest({id:'three'});
+ handlers['generate-image-response']({id:'three',success:true});
+ assert.equal(s.cosji.taskHistory.find(r=>r.id===third).state,'failed','empty backend response is not success');
+ console.log('PASS: request/response correlation, duplicate request suppression, mixed batch results, missing image and error redaction');
+} finally{globalThis.setInterval=interval;globalThis.setTimeout=timeout;}

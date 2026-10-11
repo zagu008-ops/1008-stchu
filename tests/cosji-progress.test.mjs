@@ -1,0 +1,10 @@
+import assert from 'node:assert/strict';
+import {withProgressToast} from '../cosji-progress.mjs';
+const active=new Set(),removed=[];let sequence=0;
+const toasts={info:()=>{const t=++sequence;active.add(t);return t;},remove:t=>{removed.push(t);active.delete(t);}};
+assert.equal(await withProgressToast(toasts,'working',async()=>42),42);assert.equal(active.size,0);
+await assert.rejects(withProgressToast(toasts,'working',async()=>{throw new Error('empty context');}),/empty context/);assert.equal(active.size,0);
+let release;const a=withProgressToast(toasts,'a',()=>new Promise(resolve=>release=resolve));
+await assert.rejects(withProgressToast(toasts,'b',async()=>{throw new Error('failed');}));assert.equal(active.size,1,'failure does not remove another running task');
+release();await a;assert.equal(active.size,0);assert.equal(removed.length,4);
+console.log('PASS: progress toast removed on success and failure; concurrent request notifications remain independent');

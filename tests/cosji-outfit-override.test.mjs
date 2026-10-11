@@ -1,0 +1,11 @@
+import assert from 'node:assert/strict';
+import {overrideOutfitTags} from '../cosji-outfit-override.mjs';
+const prompt='adult woman, 28 years old, school corridor, walking, white shirt, (pleated skirt:1.2), blue necktie, soft daylight, <lora:portrait:0.7>';
+const preset={fixedPrompt:'navy blazer, beige trousers, flat shoes'};
+const result=overrideOutfitTags(prompt,preset,true);
+assert.equal(result.removed.length,3);assert(!result.prompt.includes('shirt'));assert(!result.prompt.includes('skirt'));assert(result.prompt.includes('school corridor'));assert(result.prompt.includes('walking'));assert(result.prompt.includes('<lora:portrait:0.7>'));
+assert.equal(overrideOutfitTags(prompt,preset,false).prompt,prompt);
+assert.equal(overrideOutfitTags(prompt,{},true).prompt,prompt);
+assert.equal(overrideOutfitTags('smiling, (red shirt, blue skirt:1.2), sitting',preset,true).prompt,'smiling, sitting');
+const combined=[preset.fixedPrompt,result.prompt].join(', ');assert(combined.includes('navy blazer'));assert(!combined.includes('pleated skirt'));
+console.log('PASS: adult ordinary-outfit override removes clothing conflicts, keeps scene/action/LoRA, supports weighted tags, empty presets and disabled mode');

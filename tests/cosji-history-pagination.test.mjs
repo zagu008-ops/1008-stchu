@@ -1,0 +1,13 @@
+import assert from 'node:assert/strict';
+import {createHistory,historyPage} from '../cosji-history.mjs';
+const s={cosji:{}};const h=createHistory(s);
+const finished=h.start('完成');h.update(finished,'完成',{},'success');
+const pending=h.start('进行中');
+const parent=h.start('父任务');h.update(parent,'完成',{},'success');const child=h.start('子任务',{},parent);
+assert.equal(h.remove(),1);assert(h.get(pending));assert(h.get(parent));assert(h.get(child));assert(!h.get(finished));
+assert.equal(h.undo(),1);assert(h.get(finished));assert.equal(h.undo(),0);
+assert.equal(h.remove(pending),0);assert.equal(h.remove(finished),1);h.undo();
+const rows=Array.from({length:23},(_,id)=>({id}));
+assert.equal(historyPage(rows,2,10).rows[0].id,10);assert.equal(historyPage(rows,3,10).rows.length,3);
+assert.equal(historyPage(rows,99,10).page,3);assert.equal(historyPage([],99,20).page,1);
+console.log('PASS: pagination bounds, completed task cleanup, active task protection, per-row removal and deduplicated undo');

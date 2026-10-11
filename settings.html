@@ -3,9 +3,9 @@
         <div class="st-chatu8-modal-content" tabindex="-1">
             <div class="st-chatu8-modal-header">
                 <div style="display: flex; align-items: center; gap: 15px;">
-                    <h2 style="margin: 0;">智绘姬 <span id="ch-version-display" class="st-chatu8-version-tag"></span><span id="ch-title-update-notification" style="display: none; color: var(--st-chatu8-accent-color); font-weight: bold; font-size: 0.8em;"> (发现新版本, 请到“关于”中更新)</span></h2>
-                    <div id="st-chatu8-ai-trigger" class="st-chatu8-ai-heart-icon" title="呼唤智绘姬 AI 助手">
-                        <img src="/scripts/extensions/third-party/st-chatu8/html/settings/智绘姬头像.png" alt="智绘姬" style="width: 100%; height: 100%; object-fit: cover; border-radius: 50%; image-rendering: -webkit-optimize-contrast; image-rendering: crisp-edges;">
+                    <h2 style="margin: 0;">cos姬 <span id="ch-version-display" class="st-chatu8-version-tag"></span><span id="ch-title-update-notification" style="display: none; color: var(--st-chatu8-accent-color); font-weight: bold; font-size: 0.8em;"> (发现新版本, 请到“关于”中更新)</span></h2>
+                    <div id="st-chatu8-ai-trigger" class="st-chatu8-ai-heart-icon" title="呼唤cos姬 AI 助手">
+                        <img src="/scripts/extensions/third-party/1011-st/html/settings/智绘姬头像.png" alt="cos姬" style="width: 100%; height: 100%; object-fit: cover; border-radius: 50%; image-rendering: -webkit-optimize-contrast; image-rendering: crisp-edges;">
                     </div>
                 </div>
                 <span id="ch-settings-modal-close" class="st-chatu8-modal-close">&times;</span>
@@ -24,7 +24,6 @@
                         <a href="#" class="st-chatu8-nav-link" data-tab="main">主要设置</a>
                         <a href="#" class="st-chatu8-nav-link" data-tab="sd">SD</a>
                         <a href="#" class="st-chatu8-nav-link" data-tab="novelai">NovelAI</a>
-                        <a href="#" class="st-chatu8-nav-link" data-tab="comfyui_connection">ComfyUI 连接配置</a>
                         <a href="#" class="st-chatu8-nav-link" data-tab="comfyui">ComfyUI</a>
                         <a href="#" class="st-chatu8-nav-link" data-tab="comfyui_video">ComfyUI视频</a>
                         <a href="#" class="st-chatu8-nav-link" data-tab="runninghub">RunningHub</a>
@@ -38,7 +37,6 @@
                         <!-- 世界书功能暂时隐藏
                         <a href="#" class="st-chatu8-nav-link" data-tab="worldbook">世界书</a>
                         -->
-                        <a href="#" class="st-chatu8-nav-link" data-tab="wardrobe">角色衣橱</a>
                         <a href="#" class="st-chatu8-nav-link" data-tab="character">角色管理</a>
                         <a href="#" class="st-chatu8-nav-link" data-tab="theme">主题设置</a>
                         <a href="#" class="st-chatu8-nav-link" data-tab="fab">悬浮球</a>
@@ -52,7 +50,7 @@
                 <div class="st-chatu8-content">
                     <!-- Tab content will be loaded here dynamically -->
                 </div>
-                
+
                 <!-- 智能滚动按钮 (现代化独立浮动) -->
                 <button id="ch-scroll-top" class="st-chatu8-scroll-btn" title="回到顶部"><i class="fa-solid fa-arrow-up"></i></button>
                 <button id="ch-scroll-bottom" class="st-chatu8-scroll-btn" title="到底部"><i class="fa-solid fa-arrow-down"></i></button>
@@ -60,10 +58,10 @@
         </div>
     </div>
     </div>
-    <!-- 智绘姬 AI 助手对话框 (独立于设置面板外) -->
+    <!-- cos姬 AI 助手对话框 (独立于设置面板外) -->
     <div id="st-chatu8-ai-dialog" class="st-chatu8-ai-dialog">
         <div class="st-chatu8-ai-dialog-header">
-            <h3><i class="fa-solid fa-robot"></i> <span id="st-chatu8-ai-dialog-title">智绘姬 AI 助手</span> 
+            <h3><i class="fa-solid fa-robot"></i> <span id="st-chatu8-ai-dialog-title">cos姬 AI 助手</span>
                 <span id="st-chatu8-ai-history-btn" class="st-chatu8-ai-settings-icon" title="聊天历史记录" style="margin-left: 10px;"><i class="fa-solid fa-clock-rotate-left"></i></span>
                 <span id="st-chatu8-ai-new-chat" class="st-chatu8-ai-settings-icon" title="新建聊天" style="margin-left: 5px;"><i class="fa-solid fa-broom"></i></span>
                 <span id="st-chatu8-ai-summary-btn" class="st-chatu8-ai-settings-icon" title="聊天总结" style="margin-left: 5px;"><i class="fa-solid fa-layer-group"></i></span>
@@ -73,8 +71,8 @@
         </div>
         <div class="st-chatu8-ai-dialog-body" id="st-chatu8-ai-chat-body">
             <div class="st-chatu8-ai-msg system-msg">
-                <div class="msg-avatar"><img src="/scripts/extensions/third-party/st-chatu8/html/settings/智绘姬头像.png" alt="智绘姬" style="width: 100%; height: 100%; object-fit: cover; border-radius: 50%; image-rendering: -webkit-optimize-contrast; image-rendering: crisp-edges;"></div>
-                <div class="msg-content">你好呀！我是智绘姬 AI 助手，有什么可以帮到你？(UI原型版)</div>
+                <div class="msg-avatar"><img src="/scripts/extensions/third-party/1011-st/html/settings/智绘姬头像.png" alt="cos姬" style="width: 100%; height: 100%; object-fit: cover; border-radius: 50%; image-rendering: -webkit-optimize-contrast; image-rendering: crisp-edges;"></div>
+                <div class="msg-content">你好呀！我是cos姬 AI 助手，有什么可以帮到你？(UI原型版)</div>
             </div>
         </div>
         <div class="st-chatu8-ai-dialog-footer">
@@ -92,8 +90,8 @@
                 <button id="st-chatu8-ai-send" class="st-chatu8-ai-btn"><i class="fa-solid fa-paper-plane"></i></button>
             </div>
         </div>
-        
-        <!-- 智绘姬设置面板 (默认隐藏) -->
+
+        <!-- cos姬设置面板 (默认隐藏) -->
         <div id="st-chatu8-ai-settings-panel" class="st-chatu8-ai-settings-panel">
             <div class="st-chatu8-ai-settings-header">
                 <h4>设置 <small style="font-weight: normal; opacity: 0.7;">(自动保存)</small></h4>
@@ -176,12 +174,12 @@
                     </div>
                     <div class="st-chatu8-ai-setting-item checkbox">
                         <input type="checkbox" id="chatu8-ai-knowledge-base">
-                        <label for="chatu8-ai-knowledge-base">资料库 (启用后智绘姬可引用用户添加的参考资料)</label>
+                        <label for="chatu8-ai-knowledge-base">资料库 (启用后cos姬可引用用户添加的参考资料)</label>
                     </div>
                     <!-- 独立窗口（不持久化，刷新后需重新开启） -->
                     <div class="st-chatu8-ai-setting-item checkbox">
                         <input type="checkbox" id="chatu8-ai-desktop-pet">
-                        <label for="chatu8-ai-desktop-pet">独立窗口 (将智绘姬弹出到画中画小窗口，始终置顶显示，刷新后需重新开启)</label>
+                        <label for="chatu8-ai-desktop-pet">独立窗口 (将cos姬弹出到画中画小窗口，始终置顶显示，刷新后需重新开启)</label>
                     </div>
                     <!-- 屏幕共享 -->
                     <div class="st-chatu8-ai-setting-item checkbox" id="chatu8-ai-screen-share-item">
@@ -210,7 +208,7 @@
                 <div class="st-chatu8-ai-settings-tab-content" data-settings-tab-content="voice">
                     <div class="st-chatu8-ai-setting-item checkbox">
                         <input type="checkbox" id="chatu8-ai-tts-enabled">
-                        <label for="chatu8-ai-tts-enabled">语音朗读 (自动朗读智绘姬「」内的对话)</label>
+                        <label for="chatu8-ai-tts-enabled">语音朗读 (自动朗读cos姬「」内的对话)</label>
                     </div>
                     <!-- TTS 语音朗读参数设置 (启用后显示) -->
                     <div id="chatu8-ai-tts-settings" style="display:none; border: 1px solid var(--st-chatu8-border-color); border-radius: 8px; padding: 12px; margin-top: -5px; margin-bottom: 5px;">
@@ -390,7 +388,7 @@
             </div>
         </div>
 
-        <!-- 智绘姬历史记录面板 (默认隐藏) -->
+        <!-- cos姬历史记录面板 (默认隐藏) -->
         <div id="st-chatu8-ai-history-panel" class="st-chatu8-ai-settings-panel">
             <div class="st-chatu8-ai-settings-header">
                 <h4>聊天记录</h4>

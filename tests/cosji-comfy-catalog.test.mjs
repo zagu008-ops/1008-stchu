@@ -1,0 +1,12 @@
+import assert from 'node:assert/strict';
+import {comfyCatalog,applyComfyCatalog} from '../cosji-comfy-catalog.mjs';
+const cache=comfyCatalog({CheckpointLoaderSimple:{input:{required:{ckpt_name:[['model.safetensors']]}}},KSampler:{input:{required:{sampler_name:[['euler','dpmpp_2m']],scheduler:[['normal']]}}}});
+assert.deepEqual(cache.vaes,[]);assert.deepEqual(cache.CLIPs,[]);
+globalThis.Option=class{constructor(text,value){this.text=text;this.value=value;}};
+const elements=Object.fromEntries(['MODEL_NAME','comfyuisamplerName','comfyui_scheduler','comfyui_vae','comfyuiCLIPName'].map(id=>[id,{value:'',disabled:true,options:[],replaceChildren(...a){this.options=a;},add(a){this.options.push(a);}}]));
+const settings={MODEL_NAME:'model.safetensors',comfyuisamplerName:'euler',comfyui_scheduler:'normal'};
+applyComfyCatalog(cache,settings,{getElementById:id=>elements[id]});
+assert.equal(elements.MODEL_NAME.disabled,false);assert.equal(elements.comfyuisamplerName.disabled,false);
+assert.equal(elements.comfyui_vae.disabled,true);assert.equal(elements.MODEL_NAME.value,settings.MODEL_NAME);
+assert.equal(elements.comfyuisamplerName.options.length,2);
+console.log('PASS: complete catalog tolerates absent optional nodes, unlocks populated selectors and preserves selected settings');
