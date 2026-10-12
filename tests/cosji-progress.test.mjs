@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {withProgressToast} from '../cosji-progress.mjs';
 const active=new Set(),removed=[];let sequence=0;
-const toasts={info:()=>{const t=++sequence;active.add(t);return t;},remove:t=>{removed.push(t);active.delete(t);}};
+const toasts={info:()=>{const t=++sequence;active.add(t);return t;},clear:(t,options)=>{assert.equal(options.force,true);removed.push(t);active.delete(t);},remove:()=>{throw new Error('remove skips visible toasts');}};
 assert.equal(await withProgressToast(toasts,'working',async()=>42),42);assert.equal(active.size,0);
 await assert.rejects(withProgressToast(toasts,'working',async()=>{throw new Error('empty context');}),/empty context/);assert.equal(active.size,0);
 let release;const a=withProgressToast(toasts,'a',()=>new Promise(resolve=>release=resolve));
