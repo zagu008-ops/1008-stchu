@@ -27,3 +27,6 @@
 .cosji-history-list summary {cursor:pointer;line-height:1.7;}
 .cosji-history-list pre {white-space:pre-wrap;overflow-wrap:anywhere;font-size:14px;}
 .cosji-history-list li {overflow-wrap:anywhere;margin:6px 0;}
+
+#cosji-quick[data-unified] #cosji-quick-toggle{display:none}
+#cosji-quick-settings{display:block;width:100%;margin-top:12px;min-height:44px}

@@ -15432,6 +15432,10 @@ function initFab() {
         }
       }
     }
+    if (window.toggleCosjiQuick) {
+      window.toggleCosjiQuick();
+      return;
+    }
     if (window.showChatuSettingsPanel) {
       window.showChatuSettingsPanel();
     } else {
