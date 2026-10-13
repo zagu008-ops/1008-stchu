@@ -16,3 +16,19 @@ const info={LoraLoader:{input:{required:{lora_name:[['test.safetensors']]}}}};
 assert.deepEqual(await fetchComfyInfo('http://127.0.0.1:8188/',{headers:{'X-CSRF-Token':'test'},fetchImpl:async(url,options)=>{submitted={url,options};return {ok:true,json:async()=>info};}}),info);
 assert.equal(submitted.url,'/api/sd/comfy/object-info');assert.equal(submitted.options.method,'POST');assert.equal(JSON.parse(submitted.options.body).url,'http://127.0.0.1:8188');
 await assert.rejects(()=>fetchComfyInfo('http://127.0.0.1:8188',{headers:{},fetchImpl:async()=>({ok:false,status:502,text:async()=> 'Unavailable'})}),/502.*Unavailable/);
+for(const status of [404,405]){
+    const calls=[];
+    const actual=await fetchComfyInfo('http://192.168.3.13:8188/',{headers:{'X-CSRF-Token':'private'},fetchImpl:async(url,options)=>{
+        calls.push({url,options});
+        return calls.length===1?{ok:false,status}:{ok:true,json:async()=>info};
+    }});
+    assert.deepEqual(actual,info);
+    assert.equal(calls[1].url,'http://192.168.3.13:8188/object_info');
+    assert.equal(calls[1].options.headers,undefined);
+    assert.equal(calls[1].options.body,undefined);
+}
+await assert.rejects(()=>fetchComfyInfo('http://192.168.3.13:8188',{headers:{},fetchImpl:async url=>{
+    if(url.startsWith('/'))return {ok:false,status:404};
+    throw new Error('Failed to fetch');
+}}),/缺少.*直连.*跨域/);
+console.log('PASS: missing relay falls back to direct ComfyUI without forwarding private headers');

@@ -1,7 +1,17 @@
 import {normalizeComfyUrl} from './cosji-core.mjs';
 export async function fetchComfyInfo(address,{fetchImpl=fetch,headers}={}){
+    const url=normalizeComfyUrl(address);
     const requestHeaders=headers || window.SillyTavern.getContext().getRequestHeaders();
-    const response=await fetchImpl('/api/sd/comfy/object-info',{method:'POST',headers:requestHeaders,body:JSON.stringify({url:normalizeComfyUrl(address)}),signal:AbortSignal.timeout(20000)});
+    const response=await fetchImpl('/api/sd/comfy/object-info',{method:'POST',headers:requestHeaders,body:JSON.stringify({url}),signal:AbortSignal.timeout(20000)});
+    // Older SillyTavern servers do not have the optional catalog relay.
+    // Keep direct ComfyUI access working without sending the Tavern CSRF token.
+    if(response.status===404 || response.status===405){
+        let direct;
+        try{direct=await fetchImpl(url+'/object_info',{signal:AbortSignal.timeout(20000)});}
+        catch(error){throw new Error('酒馆缺少模型列表转发接口，直连 ComfyUI 也失败：'+error.message+'。请检查地址和跨域设置，或安装酒馆转发补丁。');}
+        if(!direct.ok)throw new Error('直连 ComfyUI 模型列表失败 ('+direct.status+')：'+await direct.text());
+        return direct.json();
+    }
     if(!response.ok)throw new Error('酒馆读取 ComfyUI 模型列表失败 ('+response.status+')：'+await response.text());
     return response.json();
 }
