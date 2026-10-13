@@ -31,7 +31,7 @@ function askDialog(message, initial, confirmOnly=false) {
     });
 }
 
-export function initCosji({settings, save, context, headers, refreshLLM, gallery, loraCache,saveComfyCache,generatePresetTest}) {
+export function initCosji({settings, save, context, headers, refreshLLM, gallery, loraCache,saveComfyCache,generatePresetTest,analyzeCivit,persistNativeSettings,extensionName}) {
     const catalog = migrateCatalog(settings);
     // Local ComfyUI uses the authenticated Tavern relay for both generation and catalogs.
     if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?(\/|$)/i.test(settings.comfyuiUrl||'')) {
@@ -202,7 +202,7 @@ export function initCosji({settings, save, context, headers, refreshLLM, gallery
           <div class="cosji-cover-row">${previewMarkup(settings.yushe[current])}<div>${button('cover-select','从生成缓存选择预览图')}${button('cover-remove','移除预览图')}</div></div>
           <div class="cosji-outfit-strip">${visibleOutfits().map(name=>`<button type="button" class="cosji-outfit-card ${name===current?'selected':''}" data-outfit-key="${esc(name)}" title="${esc(outfitName(name))}">${previewMarkup(settings.yushe[name],true)}<span>${esc(outfitName(name))}</span></button>`).join('')}</div>
           ${settings.yushe[current]?.cosjiCivit ? `<p class="cosji-muted">来源：<a href="${esc(settings.yushe[current].cosjiCivit.sourceUrl)}" target="_blank" rel="noopener noreferrer">Civit 模型 ${esc(settings.yushe[current].cosjiCivit.modelId)}</a> · 版本 ${esc(settings.yushe[current].cosjiCivit.versionId)}</p>` : ''}
-          <div class="cosji-civit-entry"><label>Civit 服装批量导入<input id="cosji-civit-url" type="url" value="${esc(catalog.lastCivitUrl)}" placeholder="https://civitai.red/models/1145224/…"></label>${button('civit-fetch','识别 Trigger Words')}${button('civit-download','下载 LoRA 到目标 ComfyUI')}<p class="cosji-muted">识别名称后勾选批量新建到当前角色，已存在的服装自动跳过。地址自动记住上一次输入。</p></div>
+          <div class="cosji-civit-entry"><label>Civit 服装批量导入<input id="cosji-civit-url" type="url" value="${esc(catalog.lastCivitUrl)}" placeholder="https://civitai.red/models/1145224/…"></label>${button('civit-fetch','识别 Trigger Words')}${button('civit-download','导入角色 / 服装并下载 LoRA')}<p class="cosji-muted">识别名称后勾选批量新建到当前角色，已存在的服装自动跳过。地址自动记住上一次输入。</p></div>
           <div class="cosji-row"><label>归类到 <select id="cosji-move-role">${roles}</select></label>${button('outfit-move','移动分类')}${button('outfit-share',settings.yushe[current]?.cosjiPublicOutfit?'转为当前角色服装':'转为公共服装')}</div>
           ${PROMPT_FIELDS.map((field,i) => `<details><summary>${['固定正面提示词','后置固定正面提示词','固定负面提示词'][i]}（点击展开）</summary><label><textarea data-cos-field="${field}" rows="4" ${!current?'disabled':''}>${esc(draft[field])}</textarea></label></details>`).join('')}
           <h4>LoRA</h4><p class="cosji-muted">每个 LoRA 可整项删除；模型权重和可选 CLIP 权重独立编辑。</p>
@@ -281,7 +281,7 @@ export function initCosji({settings, save, context, headers, refreshLLM, gallery
             }
             if(action==='cover-remove') {if(!current)throw new Error('请先选择服装预设');delete settings.yushe[current].cosjiPreview;status='预览图已移除';}
             if(action==='civit-download') {
-                civitDownloadDialog({url:panel.querySelector('#cosji-civit-url').value,address:settings.comfyuiUrl,onDownloaded:()=>refreshLoras()});
+                civitDownloadDialog({url:panel.querySelector('#cosji-civit-url').value,address:settings.comfyuiUrl,settings,headers,analyze:analyzeCivit,extensionName,persist:async()=>{save();await persistNativeSettings();},onImported:async()=>{await refreshLoras();render();renderQuick();}});
                 return;
             }
             if(action==='civit-fetch') {

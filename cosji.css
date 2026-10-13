@@ -54,3 +54,5 @@
 .cosji-outfit-tabs{display:flex;gap:6px;margin:18px 0 8px;border-bottom:1px solid #59667f;padding-bottom:8px}
 .cosji-outfit-tabs button{padding:9px 18px;border:1px solid #59667f;border-radius:7px;background:transparent;color:inherit;cursor:pointer}
 .cosji-outfit-tabs button[aria-selected="true"]{background:#365374;border-color:#96b5df;font-weight:600}
+
+.cosji-civit-dialog label{display:block;margin:10px 0}.cosji-civit-dialog input[type=checkbox]{width:auto;margin-right:8px}.cosji-civit-dialog fieldset{border:1px solid #55708b;border-radius:8px;margin:12px 0;padding:12px}.cosji-civit-dialog pre{white-space:pre-wrap;overflow-wrap:anywhere}.cosji-civit-dialog [hidden]{display:none!important}

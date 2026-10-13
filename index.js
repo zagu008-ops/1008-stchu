@@ -1,3 +1,4 @@
+import { saveSettings as cosjiSaveNativeSettings } from '../../../../script.js';
 import {readGenerationStream} from './cosji-generation-stream.mjs';
 import {mountDemandVocabulary} from './cosji-demand-vocabulary.mjs';
 import { resolveNativeProfile as cosjiResolveNativeProfile, withCommonPrompts as cosjiWithCommonPrompts } from './cosji-core.mjs';
@@ -113188,6 +113189,18 @@ async function main() {
   await initUI({ check_update });
   initHistory(extension_settings116[extensionName],saveSettingsDebounced72,{cache:saveFullComfyuiCache,test:runCosjiGenerationTest});
   initCosji({
+    extensionName,
+    persistNativeSettings:cosjiSaveNativeSettings,
+    analyzeCivit:async(messages)=>{
+      const cfg=getEffectiveConfigForRequestType('image_gen');
+      if(!cfg.model || (!cfg.api_url && (!cfg.chat_completion_source || cfg.chat_completion_source==='custom')))throw Error('请先在 LLM 设置配置文本模型');
+      const body={chat_completion_source:cfg.chat_completion_source||'custom',secret_id:cfg.secret_id,custom_url:cfg.api_url.replace(/\/$/,''),custom_include_headers:buildProxyIncludeHeaders(cfg.api_key,{}),model:cfg.model,messages,stream:false,temperature:0,max_tokens:6000};
+      const response=await fetch('/api/backends/chat-completions/generate',{method:'POST',headers:getRequestHeaders(window.token),body:JSON.stringify(body),signal:AbortSignal.timeout(120000)});
+      if(!response.ok)throw Error('文本识别请求失败（HTTP '+response.status+'），请检查 LLM 设置');
+      const data=await response.json();
+      const content=data.choices?.[0]?.message?.content ?? data.content?.filter(x=>x.type==='text').map(x=>x.text).join('') ?? data.candidates?.[0]?.content?.parts?.map(x=>x.text||'').join('');
+      if(typeof content!=='string'||!content.trim())throw Error('文本模型未返回可用识别结果');return content;
+    },
     generatePresetTest:runPresetGenerationTest,
     saveComfyCache:saveFullComfyuiCache,
     loraCache: getFullComfyuiCache,

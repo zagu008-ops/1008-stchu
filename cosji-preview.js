@@ -6,7 +6,7 @@ export function previewMarkup(preset, small=false) {
         : `<span class="cosji-outfit-thumb cosji-thumb-empty ${small?'cosji-thumb-small':''}">无预览</span>`;
 }
 
-async function compactCover(blob) {
+export async function compactCover(blob) {
     if(!blob?.type?.startsWith('image/'))throw new Error('此缓存不是可用的图片');
     const bitmap=await createImageBitmap(blob);
     try {
