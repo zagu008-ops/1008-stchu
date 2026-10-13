@@ -10,3 +10,9 @@ assert.equal(elements.MODEL_NAME.disabled,false);assert.equal(elements.comfyuisa
 assert.equal(elements.comfyui_vae.disabled,true);assert.equal(elements.MODEL_NAME.value,settings.MODEL_NAME);
 assert.equal(elements.comfyuisamplerName.options.length,2);
 console.log('PASS: complete catalog tolerates absent optional nodes, unlocks populated selectors and preserves selected settings');
+const {fetchComfyInfo}=await import('../cosji-comfy-catalog.mjs');
+let submitted;
+const info={LoraLoader:{input:{required:{lora_name:[['test.safetensors']]}}}};
+assert.deepEqual(await fetchComfyInfo('http://127.0.0.1:8188/',{headers:{'X-CSRF-Token':'test'},fetchImpl:async(url,options)=>{submitted={url,options};return {ok:true,json:async()=>info};}}),info);
+assert.equal(submitted.url,'/api/sd/comfy/object-info');assert.equal(submitted.options.method,'POST');assert.equal(JSON.parse(submitted.options.body).url,'http://127.0.0.1:8188');
+await assert.rejects(()=>fetchComfyInfo('http://127.0.0.1:8188',{headers:{},fetchImpl:async()=>({ok:false,status:502,text:async()=> 'Unavailable'})}),/502.*Unavailable/);

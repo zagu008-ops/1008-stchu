@@ -1,3 +1,10 @@
+import {normalizeComfyUrl} from './cosji-core.mjs';
+export async function fetchComfyInfo(address,{fetchImpl=fetch,headers}={}){
+    const requestHeaders=headers || window.SillyTavern.getContext().getRequestHeaders();
+    const response=await fetchImpl('/api/sd/comfy/object-info',{method:'POST',headers:requestHeaders,body:JSON.stringify({url:normalizeComfyUrl(address)}),signal:AbortSignal.timeout(20000)});
+    if(!response.ok)throw new Error('酒馆读取 ComfyUI 模型列表失败 ('+response.status+')：'+await response.text());
+    return response.json();
+}
 export function comfyCatalog(info){
     const names=(node,key)=>info[node]?.input?.required?.[key]?.[0]||[];
     return {

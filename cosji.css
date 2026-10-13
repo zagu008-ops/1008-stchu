@@ -30,3 +30,27 @@
 
 #cosji-quick[data-unified] #cosji-quick-toggle{display:none}
 #cosji-quick-settings{display:block;width:100%;margin-top:12px;min-height:44px}
+
+/* Keep the new default LoRA model and its weight on one line. */
+.cosji-row.cosji-common-lora-add{display:grid;grid-template-columns:minmax(0,1fr) 88px}
+.cosji-row.cosji-common-lora-add>[data-common-model],.cosji-row.cosji-common-lora-add>[data-common-new-weight]{min-width:0;width:100%;margin:0}
+.cosji-row.cosji-common-lora-add>.cosji-button{grid-column:1/-1;justify-self:start}
+
+/* Public preset modules and compact default LoRA controls. */
+.cosji-panel [data-common-editor]{margin:16px 0;border:1px solid #59667f;border-left:4px solid #83a6cf;border-radius:10px;background:rgba(100,120,160,.06)}
+.cosji-panel [data-common-editor="role"]{border-left-color:#b59cd9}
+.cosji-common-module>h3{margin:0 0 12px;padding-bottom:10px;border-bottom:1px solid #59667f}
+.cosji-common-lora-module{margin-top:14px;padding-top:10px;border-top:1px solid #59667f}
+.cosji-common-lora-module h4{margin:0 0 8px}
+.cosji-common-saved{font-size:.85em;opacity:.75;margin-top:8px;text-align:right}
+.cosji-panel [data-common-lora]{display:grid;grid-template-columns:minmax(140px,1fr) 72px 72px 66px auto;gap:8px;padding:7px 9px;margin:5px 0;align-items:center}
+.cosji-panel [data-common-lora]>span{min-width:0;line-height:1.3}
+.cosji-panel [data-common-lora]>label{margin:0;font-size:.85em}
+.cosji-panel [data-common-lora] input{width:100%;min-width:0;padding:5px 6px;height:30px;margin:3px 0 0}
+.cosji-panel [data-common-lora]>select{width:100%;min-width:0;padding:5px}
+.cosji-panel [data-common-lora]>.cosji-button{padding:6px 8px;white-space:nowrap}
+@media(max-width:600px){.cosji-panel [data-common-lora]{grid-template-columns:1fr 1fr 66px auto}.cosji-panel [data-common-lora]>span{grid-column:1/-1}.cosji-panel [data-common-lora]>label{min-width:0}}
+
+.cosji-outfit-tabs{display:flex;gap:6px;margin:18px 0 8px;border-bottom:1px solid #59667f;padding-bottom:8px}
+.cosji-outfit-tabs button{padding:9px 18px;border:1px solid #59667f;border-radius:7px;background:transparent;color:inherit;cursor:pointer}
+.cosji-outfit-tabs button[aria-selected="true"]{background:#365374;border-color:#96b5df;font-weight:600}

@@ -2,7 +2,7 @@ export const PROMPT_FIELDS = ['fixedPrompt', 'fixedPrompt_end', 'negativePrompt'
 
 export function withCommonPrompts(preset = {}, settings = {}, presetId) {
     const common=settings.cosji?.commonPrompts || {};
-    const roleId=settings.cosji?.presetRoles?.[presetId];
+    const roleId=(preset.cosjiPublicOutfit || settings.yushe?.[presetId]?.cosjiPublicOutfit) ? settings.cosji?.selectedRole : settings.cosji?.presetRoles?.[presetId];
     const roleCommon=settings.cosji?.roleCommonPrompts?.[roleId] || {};
     const commonFields=value=>joinLoras({fixedPrompt:value.positive,negativePrompt:value.negative,loras:value.loras||[]});
     const globalFields=commonFields(common),roleFields=commonFields(roleCommon);

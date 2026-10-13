@@ -1,0 +1,31 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import {composeDirectTags} from '../cosji-demand-vocabulary.mjs';
+assert.equal(composeDirectTags('sunlight',[{name:'smile',translation:'微笑'},{name:'smile'},{name:' '}]),'sunlight, smile');
+const source=fs.readFileSync(new URL('../index.js',import.meta.url),'utf8');
+const body=source.slice(source.indexOf('async function handleDirectTagGeneration('),source.indexOf('async function handlePromptRequest('));
+assert.ok(!body.includes('LLM')&&!body.includes('processWorldBooks'));
+let submitted, saved=0, cached=0, displayed=0, switched=false, cancelled=false;
+const message={mes:'Original',name:'A'}, text={dataset:{}};
+const mes={getAttribute:()=> '2',querySelector:()=>text,isConnected:true};
+const context={chat:[null,null,message]};
+const dependencies={isPluginEnabled:()=>true,toastr:{warning(){},info(){},error(e){throw Error(e)}},getContext12:()=>switched?{chat:[]}:context,showUserDemandPopup2:async()=>cancelled?null:{text:'smile'},historyStart:()=> 'history',historyRequest(){},historyStep(){},cosjiCreateId:()=> '1',normalizePromptTag:s=>s,extension_settings40:{test:{yusheid_comfyui:'current',comfyui_width:512,comfyui_height:768}},extensionName:'test',withProgressToast:async(t,m,fn)=>fn(),generateComfyUIImage:async params=>{submitted=params;return {image:'data:image/png;base64,a'}},setItemImg:async()=>cached++,getImageTags:()=>({startTag:'<image>',endTag:'</image>'}),saveChatConditional:async()=>saved++,messageFormatting:s=>s,processImagePlaceholdersForElement:async()=>displayed++,eventSource21:{emit(){}},EventType:{GENERATE_IMAGE_RESPONSE:'result'}};
+const run=new Function(...Object.keys(dependencies),body+';return handleDirectTagGeneration;')(...Object.values(dependencies));
+await run({closest:()=>mes});
+assert.equal(submitted.prompt,'smile');assert.equal(submitted.presetId,'current');assert.equal(saved,1);assert.equal(cached,1);assert.equal(displayed,1);assert.ok(message.mes.endsWith('<image>smile</image>'));
+cancelled=true;submitted=null;await run({closest:()=>mes});assert.equal(submitted,null);
+// Execute navigation with real boundary logic and stubbed media surfaces.
+const viewer=source.slice(source.indexOf('function showImagePreview('),source.indexOf('var init_imagePreview'));
+const navigation=viewer.slice(viewer.indexOf('  function navigateMedia('),viewer.indexOf('  const prevButton ='));
+const buttons=[{dataset:{link:'old'}},{dataset:{link:'current'}},{dataset:{link:'new'}}];
+let updated,opened,closed=0;
+const navigate=new Function('currentIndex','images','updateLargeImage','floorMedia','button','currentTag','closeButton','showImagePreview','isImmersive',navigation+';return navigateMedia;')(0,[null],i=>updated=i,()=>buttons.map(button=>({button,img:{}})),buttons[1],'current',{onclick(){closed++}},(...args)=>opened=args,false);
+navigate(-1);assert.equal(opened[1],buttons[0]);assert.equal(opened[3],'last');assert.equal(closed,1);
+navigate(1);assert.equal(opened[1],buttons[2]);assert.equal(opened[3],'first');assert.equal(updated,undefined);
+// A chat switch during generation must preserve the original message.
+const original=message.mes;
+cancelled=false;
+dependencies.generateComfyUIImage=async params=>{submitted=params;switched=true;return {image:'data:image/png;base64,a'}};
+const runSwitched=new Function(...Object.keys(dependencies),body+';return handleDirectTagGeneration;')(...Object.values(dependencies));
+switched=false;await runSwitched({closest:()=>mes});
+assert.equal(message.mes,original);assert.equal(saved,1);assert.equal(cached,2);

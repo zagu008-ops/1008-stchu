@@ -1,0 +1,97 @@
+diff --git a/src/endpoints/stable-diffusion.js b/src/endpoints/stable-diffusion.js
+index 077c2f9..8c089ea 100644
+--- a/src/endpoints/stable-diffusion.js
++++ b/src/endpoints/stable-diffusion.js
+@@ -400,6 +400,36 @@ comfy.post('/ping', async (request, response) => {
+     }
+ });
+ 
++// Keep catalog reads on the same server path as image generation (no browser CORS).
++comfy.post('/object-info', async (request, response) => {
++    try {
++        const url = new URL(urlJoin(request.body.url, '/object_info'));
++        const result = await fetch(url, { signal: AbortSignal.timeout(15000) });
++        if (!result.ok) return response.status(502).send('ComfyUI catalog returned ' + result.status);
++        return response.json(await result.json());
++    } catch (error) {
++        console.error('ComfyUI catalog:', error.message);
++        return response.status(502).send('Unable to read ComfyUI catalog: ' + error.message);
++    }
++});
++
++comfy.post('/loras', async (request, response) => {
++    try {
++        const url = new URL(urlJoin(request.body.url, '/object_info'));
++        const result = await fetch(url, { signal: AbortSignal.timeout(15000) });
++        if (!result.ok) return response.status(502).send('ComfyUI returned an error.');
++        const data = await result.json();
++        const names = Object.values(data).flatMap(node => {
++            const options = node?.input?.required?.lora_name?.[0] ?? node?.input?.optional?.lora_name?.[0];
++            return Array.isArray(options) ? options.filter(name => typeof name === 'string') : [];
++        });
++        return response.json([...new Set(names)].sort());
++    } catch (error) {
++        console.error(error);
++        return response.status(502).send('Unable to read ComfyUI LoRA list.');
++    }
++});
++
+ comfy.post('/samplers', async (request, response) => {
+     try {
+         const url = new URL(urlJoin(request.body.url, '/object_info'));
+@@ -560,6 +590,14 @@ comfy.post('/rename-workflow', getFileNameValidationFunction('old_name'), getFil
+ });
+ 
+ comfy.post('/generate', async (request, response) => {
++    let streaming = false;
++    let lastStage = '';
++    const progress = (stage, promptId) => {
++        if (!request.body.stream || stage === lastStage) return;
++        if (!streaming) { response.setHeader('Content-Type', 'application/x-ndjson'); response.flushHeaders(); streaming = true; }
++        lastStage = stage;
++        response.write(JSON.stringify({ stage, promptId }) + '\n');
++    };
+     try {
+         let item;
+         const url = new URL(urlJoin(request.body.url, '/prompt'));
+@@ -586,6 +624,7 @@ comfy.post('/generate', async (request, response) => {
+         /** @type {any} */
+         const data = await promptResult.json();
+         const id = data.prompt_id;
++        progress('ComfyUI 已接收任务，正在核对队列', id);
+         const historyUrl = new URL(urlJoin(request.body.url, `/history/${id}`));
+         while (true) {
+             const result = await fetch(historyUrl);
+@@ -598,7 +637,15 @@ comfy.post('/generate', async (request, response) => {
+             if (item) {
+                 break;
+             }
+-            await delay(100);
++            if (request.body.stream) {
++                const queueResult = await fetch(new URL(urlJoin(request.body.url, '/queue')));
++                if (queueResult.ok) {
++                    const queue = await queueResult.json();
++                    const running = (queue.queue_running || []).some(row => row[1] === id);
++                    progress(running ? 'ComfyUI 正在执行（加载模型 / 采样 / 解码）' : 'ComfyUI 排队等待执行', id);
++                }
++            }
++            await delay(request.body.stream ? 1000 : 100);
+         }
+         if (item.status.status_str === 'error') {
+             // Report node tracebacks if available
+@@ -624,10 +671,13 @@ comfy.post('/generate', async (request, response) => {
+         }
+         const format = path.extname(imgInfo.filename).slice(1).toLowerCase() || 'png';
+         const imgBuffer = await imgResponse.arrayBuffer();
+-        return response.send({ format: format, data: Buffer.from(imgBuffer).toString('base64') });
++        const result = { format: format, data: Buffer.from(imgBuffer).toString('base64') };
++        if (streaming) return response.end(JSON.stringify({ result }) + '\n');
++        return response.send(result);
+     } catch (error) {
+         console.error('ComfyUI error:', error);
+-        response.status(500).send(error.message);
++        if (streaming) response.end(JSON.stringify({ error: error.message }) + '\n');
++        else response.status(500).send(error.message);
+         return response;
+     }
+ });

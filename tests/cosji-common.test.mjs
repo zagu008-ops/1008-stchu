@@ -33,3 +33,14 @@ assert.equal(defaults.negativePrompt,'bad anatomy, avoid A, <lora:role.safetenso
 assert.ok(!withCommonPrompts(preset,settings,'outfitB').negativePrompt.includes('role.safetensors'));
 assert.deepEqual(preset,original);
 console.log('PASS: global and role default LoRA generation with weights, field isolation and unchanged outfit');
+
+// Shared outfits follow the selected character; owned outfits keep their owner.
+settings.yushe={shared:{cosjiPublicOutfit:true}};
+settings.cosji.presetRoles.shared='uncategorized';
+settings.cosji.selectedRole='roleA';
+assert.equal(withCommonPrompts(preset,settings,'shared').fixedPrompt,'quality, <lora:global.safetensors:0.8>, character A, outfit, <lora:model:0.8>');
+settings.cosji.selectedRole='roleB';
+assert.equal(withCommonPrompts(preset,settings,'shared').fixedPrompt,'quality, <lora:global.safetensors:0.8>, character B, outfit, <lora:model:0.8>');
+assert.ok(withCommonPrompts(preset,settings,'outfitA').fixedPrompt.includes('character A'));
+assert.deepEqual(preset,original);
+console.log('PASS shared outfit selected-role merge, owned outfit isolation and unchanged source');

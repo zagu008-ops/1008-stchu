@@ -17,9 +17,16 @@ export function createCommonEditors({catalog,save,ask,changed}){
     }
     function mirror(s){const value=normalizeCommon(s.library.presets[s.library.selected]);if(s.scope==='all')catalog.commonPrompts=value;else catalog.roleCommonPrompts[s.scope]=value;}
     const controls=(s)=>`<div class="cosji-row"><select data-common-profile aria-label="公共预设列表">${Object.entries(s.library.presets).map(([id,p])=>`<option value="${esc(id)}" ${id===s.library.selected?'selected':''}>${esc(p.name)}</option>`).join('')}</select>${['新建','另存为','改名','删除','恢复删除'].map((name,i)=>`<button type="button" class="cosji-button" data-common-action="${['new','copy','rename','delete','restore'][i]}">${name}</button>`).join('')}</div>`;
-    function mark(s,host){s.dirty=true;host.querySelector('[data-common-state]').textContent='有未保存修改';}
+    function savedTime(s){const at=s.library.presets[s.library.selected].savedAt;return at?'保存时间：'+new Date(at).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai',hour12:false}):'保存时间：—';}
+    function persist(s,host){
+        joinLoras({loras:s.draft.loras});
+        s.draft.savedAt=Date.now();s.library.presets[s.library.selected]=structuredClone(s.draft);mirror(s);save();changed();s.dirty=false;
+        if(host){host.querySelector('[data-common-state]').textContent=savedTime(s);host.querySelector('[data-common-status]').textContent='';}
+    }
+    function mark(s,host){s.dirty=true;try{persist(s,host);}catch(error){host.querySelector('[data-common-status]').textContent='尚未保存：'+error.message;}}
+
     function renderHost(host,s,title){
-        host.innerHTML=`<section class="cosji-civit-entry"><h3>${esc(title)}</h3>${controls(s)}<p class="cosji-muted">提示词和默认 LoRA 随此预设保存、切换。合并顺序：全部公共 → 角色公共 → 服装。</p>${['positive','negative'].map((field,i)=>`<details data-common-fold="${field}" ${s.open.has(field)?'open':''}><summary>${i?'负向提示词':'前置正向提示词'}（点击展开）</summary><textarea data-common-text="${field}" rows="3">${esc(s.draft[field])}</textarea></details>`).join('')}<h4>默认 LoRA</h4><div data-common-loras>${s.draft.loras.map((l,i)=>`<div class="cosji-lora" data-common-lora="${i}"><span>${esc(l.name)}</span><label>权重<input type="number" step="0.05" value="${esc(l.weight)}" data-common-weight="weight"></label><label>CLIP<input type="number" step="0.05" placeholder="可选" value="${esc(l.clipWeight)}" data-common-weight="clipWeight"></label><select data-common-weight="field"><option value="fixedPrompt" ${l.field==='fixedPrompt'?'selected':''}>正向</option><option value="negativePrompt" ${l.field==='negativePrompt'?'selected':''}>负向</option></select><button type="button" class="cosji-button" data-common-remove="${i}">删除整项</button></div>`).join('')||'<p class="cosji-muted">没有默认 LoRA</p>'}</div><div class="cosji-row"><select data-common-model aria-label="默认 LoRA 模型列表"></select><input data-common-new-weight type="number" step="0.05" value="1" aria-label="默认 LoRA 权重"><button type="button" class="cosji-button" data-common-action="add-lora">添加默认 LoRA</button></div><div class="cosji-row"><button type="button" class="cosji-button" data-common-action="save">保存预设</button><span data-common-state>${s.dirty?'有未保存修改':'已保存'}</span></div><p data-common-status role="status" class="cosji-muted"></p></section>`;
+        host.innerHTML=`<section class="cosji-civit-entry cosji-common-module"><h3>${esc(title)}</h3>${controls(s)}<p class="cosji-muted">提示词和默认 LoRA 随此预设保存、切换。合并顺序：全部公共 → 角色公共 → 服装。</p>${['positive','negative'].map((field,i)=>`<details data-common-fold="${field}" ${s.open.has(field)?'open':''}><summary>${i?'负向提示词':'前置正向提示词'}（点击展开）</summary><textarea data-common-text="${field}" rows="3">${esc(s.draft[field])}</textarea></details>`).join('')}<div class="cosji-common-lora-module"><h4>默认 LoRA</h4><div data-common-loras>${s.draft.loras.map((l,i)=>`<div class="cosji-lora" data-common-lora="${i}"><span>${esc(l.name)}</span><label>权重<input type="number" step="0.05" value="${esc(l.weight)}" data-common-weight="weight"></label><label>CLIP<input type="number" step="0.05" placeholder="可选" value="${esc(l.clipWeight)}" data-common-weight="clipWeight"></label><select data-common-weight="field"><option value="fixedPrompt" ${l.field==='fixedPrompt'?'selected':''}>正向</option><option value="negativePrompt" ${l.field==='negativePrompt'?'selected':''}>负向</option></select><button type="button" class="cosji-button" data-common-remove="${i}">删除整项</button></div>`).join('')||'<p class="cosji-muted">没有默认 LoRA</p>'}</div><div class="cosji-row cosji-common-lora-add"><select data-common-model aria-label="默认 LoRA 模型列表"></select><input data-common-new-weight type="number" step="0.05" value="1" aria-label="默认 LoRA 权重"><button type="button" class="cosji-button" data-common-action="add-lora">确认新增</button></div></div><div class="cosji-common-saved"><span data-common-state>${savedTime(s)}</span></div><p data-common-status role="status" class="cosji-muted"></p></section>`;
         updateHostModels(host);
         host.querySelectorAll('details').forEach(el=>el.addEventListener('toggle',()=>{if(el.open)s.open.add(el.dataset.commonFold);else s.open.delete(el.dataset.commonFold);}));
         host.oninput=e=>{
@@ -28,18 +35,18 @@ export function createCommonEditors({catalog,save,ask,changed}){
         };
         host.onchange=async e=>{
             if(!e.target.hasAttribute('data-common-profile'))return;
-            if(s.dirty&&!await ask('公共预设有未保存修改，放弃并切换？','',true)){e.target.value=s.library.selected;return;}
+            if(s.dirty){try{persist(s,host);}catch(error){e.target.value=s.library.selected;host.querySelector('[data-common-status]').textContent='请先修正输入：'+error.message;return;}}
             s.library.selected=e.target.value;s.draft=structuredClone(s.library.presets[s.library.selected]);s.dirty=false;mirror(s);save();changed();renderHost(host,s,title);
         };
         host.onclick=async e=>{
             const remove=e.target.closest('[data-common-remove]'),action=e.target.closest('[data-common-action]')?.dataset.commonAction;
             if(!remove&&!action)return;e.stopPropagation();
             try{
-                if(remove){s.draft.loras.splice(Number(remove.dataset.commonRemove),1);s.dirty=true;renderHost(host,s,title);return;}
+                if(remove){s.draft.loras.splice(Number(remove.dataset.commonRemove),1);persist(s,host);renderHost(host,s,title);return;}
                 if(action==='add-lora'){
                     const name=host.querySelector('[data-common-model]').value,weight=host.querySelector('[data-common-new-weight]').value;
                     if(!name)throw new Error('请先选择 LoRA 模型');
-                    const l={name,weight,clipWeight:'',field:'fixedPrompt'};joinLoras({loras:[l]});s.draft.loras.push(l);s.dirty=true;renderHost(host,s,title);return;
+                    const l={name,weight,clipWeight:'',field:'fixedPrompt'};joinLoras({loras:[...s.draft.loras,l]});s.draft.loras.push(l);s.library.presets[s.library.selected]=structuredClone(s.draft);s.dirty=false;
                 }
                 if(action==='save'){joinLoras({loras:s.draft.loras});s.library.presets[s.library.selected]=structuredClone(s.draft);s.dirty=false;}
                 if(action==='new'||action==='copy'){
@@ -56,12 +63,13 @@ export function createCommonEditors({catalog,save,ask,changed}){
                     s.library.deleted={id:s.library.selected,preset:s.library.presets[s.library.selected]};delete s.library.presets[s.library.selected];s.library.selected=Object.keys(s.library.presets)[0];s.draft=structuredClone(s.library.presets[s.library.selected]);s.dirty=false;
                 }
                 if(action==='restore'){const d=s.library.deleted;if(!d)throw new Error('没有可恢复的公共预设');s.library.presets[d.id]=d.preset;delete s.library.deleted;}
-                mirror(s);save();changed();renderHost(host,s,title);
+                persist(s,host);renderHost(host,s,title);
             }catch(error){host.querySelector('[data-common-status]').textContent=error.message;}
         };
     }
     function updateHostModels(host){const select=host.querySelector('[data-common-model]');if(!select)return;const value=select.value;select.innerHTML='<option value="">'+(modelNames.length?'选择默认 LoRA':'等待连接读取 LoRA')+'</option>'+modelNames.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('');if(modelNames.includes(value))select.value=value;}
     return {
+        flush(){for(const s of states.values())if(s.dirty)persist(s);},
         render(panel,role,names){modelNames=names;renderHost(panel.querySelector('[data-common-editor="all"]'),getState('all'),'全部公共预设');renderHost(panel.querySelector('[data-common-editor="role"]'),getState(role),'角色公共预设 · '+(catalog.roles.find(r=>r.id===role)?.name||'未分类'));},
         updateModels(panel,names){modelNames=names;panel.querySelectorAll('[data-common-editor]').forEach(updateHostModels);}
     };

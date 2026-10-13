@@ -1,12 +1,16 @@
+import {presetTestSnapshot,showPresetTest} from './cosji-preset-test.mjs';
+import {fetchComfyInfo} from './cosji-comfy-catalog.mjs';
+import {capturePage,applyPage} from './cosji-address-config.mjs';
+import {pageAddressDialog} from './cosji-address-config-dialog.js';
 import {mountCosjiFloating} from './cosji-floating.mjs';
 import {mountUnifiedQuick} from './cosji-unified.mjs';
 import {fitCosjiEditor,closeCosjiQuick} from './cosji-editor.mjs';
 import {PROMPT_FIELDS, splitLoras, joinLoras, migrateCatalog, normalizeComfyUrl, resolveNativeProfile, withCommonPrompts} from './cosji-core.mjs';
 import {createId} from './cosji-id.mjs';
 import {fetchCivitModel, planCivitImport, commitCivitImport} from './cosji-civit.mjs';
+import {civitDownloadDialog} from './cosji-civit-download.js';
 import {previewMarkup, chooseCacheCover} from './cosji-preview.js';
 import {availableAt,inspectLoras} from './cosji-address.mjs';
-import {copyAddressDialog} from './cosji-address-dialog.js';
 import {createCommonEditors} from './cosji-common.js';
 import {comfyCatalog,applyComfyCatalog} from './cosji-comfy-catalog.mjs';
 
@@ -27,8 +31,20 @@ function askDialog(message, initial, confirmOnly=false) {
     });
 }
 
-export function initCosji({settings, save, context, headers, refreshLLM, gallery, loraCache,saveComfyCache}) {
+export function initCosji({settings, save, context, headers, refreshLLM, gallery, loraCache,saveComfyCache,generatePresetTest}) {
     const catalog = migrateCatalog(settings);
+    // Local ComfyUI uses the authenticated Tavern relay for both generation and catalogs.
+    if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?(\/|$)/i.test(settings.comfyuiUrl||'')) {
+        settings.comfyuiUrl=settings.comfyuiUrl.replace('localhost','127.0.0.1');
+        settings.client='jiuguan';
+        for(const c of catalog.comfyConnections){c.url=c.url.replace('localhost','127.0.0.1');if(c.name==='http://localhost:8188')c.name='本地 ComfyUI';}
+        save();
+    }
+    catalog.addressConfigs??={};
+    let activePageAddress='';try{activePageAddress=normalizeComfyUrl(settings.comfyuiUrl);}catch{}
+    const originalSave=save;
+    save=()=>{if(activePageAddress)catalog.addressConfigs[activePageAddress]=capturePage(settings);originalSave();};
+    if(activePageAddress&&!catalog.addressConfigs[activePageAddress])catalog.addressConfigs[activePageAddress]=capturePage(settings);
     document.getElementById('ch-title-update-notification')?.remove();
     document.getElementById('ch-update-indicator')?.remove();
     const styles = document.createElement('link');
@@ -67,12 +83,13 @@ export function initCosji({settings, save, context, headers, refreshLLM, gallery
     }
     let current = settings.yusheid_comfyui || Object.keys(settings.yushe)[0] || '';
     let role = catalog.roles.some(r=>r.id===catalog.selectedRole) ? catalog.selectedRole : catalog.presetRoles[current] || 'uncategorized';
-    if(catalog.presetRoles[current]!==role)current=Object.keys(settings.yushe).find(name=>catalog.presetRoles[name]===role) || '';
+    if(!settings.yushe[current]?.cosjiPublicOutfit && catalog.presetRoles[current]!==role)current=Object.keys(settings.yushe).find(name=>catalog.presetRoles[name]===role) || '';
     catalog.lastCivitUrl ??= settings.yushe[current]?.cosjiCivit?.sourceUrl || '';
     let draft = splitLoras(settings.yushe[current]);
+    let outfitTab = settings.yushe[current]?.cosjiPublicOutfit ? 'public' : 'role';
     let dirty = false;
     let status = '';
-    const commonEditors=createCommonEditors({catalog,save,ask:askDialog,changed:()=>updateCompatibility()});
+    let commonEditors=createCommonEditors({catalog,save,ask:askDialog,changed:()=>updateCompatibility()});
     let loraNames=catalog.loraCatalog?.url===settings.comfyuiUrl ? catalog.loraCatalog.names || [] : [];
     let loraVerifiedUrl='';
     function updateCompatibility(){
@@ -101,9 +118,7 @@ export function initCosji({settings, save, context, headers, refreshLLM, gallery
         const showStatus=()=>{const el=panel.querySelector('.cosji-status');if(el)el.textContent=status;};
         showStatus();
         try {
-            const response=await fetch(normalizeComfyUrl(address)+'/object_info',{signal:AbortSignal.timeout(12000),credentials:'omit'});
-            if(!response.ok)throw new Error(`ComfyUI 返回 ${response.status}`);
-            const info=await response.json(),names=info.LoraLoader?.input?.required?.lora_name?.[0];
+            const info=await fetchComfyInfo(address,{headers:headers()}),names=info.LoraLoader?.input?.required?.lora_name?.[0];
             if(!Array.isArray(names))throw new Error('ComfyUI 未返回 LoRA 模型列表');
             if(request!==loraRequest||address!==settings.comfyuiUrl)return;
             const fullCache=comfyCatalog(info);
@@ -121,18 +136,32 @@ export function initCosji({settings, save, context, headers, refreshLLM, gallery
         showStatus();
     }
     const namesFor = (id,all=false) => Object.keys(settings.yushe).filter(name => catalog.presetRoles[name] === id && (all||availableAt(settings.yushe[name],settings.comfyuiUrl)));
+    const publicNames = (all=false) => Object.keys(settings.yushe).filter(name=>settings.yushe[name].cosjiPublicOutfit && (all||availableAt(settings.yushe[name],settings.comfyuiUrl)));
+    const visibleOutfits = () => outfitTab==='public' ? publicNames() : namesFor(role).filter(name=>!settings.yushe[name].cosjiPublicOutfit);
+    const selectableOutfits = id => [...new Set([...namesFor(id),...publicNames()])];
     function adaptAddressSelection(){
         const active=settings.yusheid_comfyui,activePreset=settings.yushe[active];
         if(activePreset&&!availableAt(activePreset,settings.comfyuiUrl)){
             const root=activePreset.cosjiSourcePreset;
-            const choices=namesFor(catalog.presetRoles[active]);
+            const choices=activePreset.cosjiPublicOutfit?publicNames():namesFor(catalog.presetRoles[active]);
             const replacement=choices.find(name=>settings.yushe[name].cosjiSourcePreset===root&&settings.yushe[name].cosjiComfyUrl)||choices.find(name=>name===root)||choices[0]||Object.keys(settings.yushe).find(name=>availableAt(settings.yushe[name],settings.comfyuiUrl));
             if(replacement){settings.yusheid_comfyui=replacement;syncNativeFields();save();}
         }
         if(!current||availableAt(settings.yushe[current],settings.comfyuiUrl))return;
         const source=settings.yushe[current].cosjiSourcePreset;
-        const variant=namesFor(role).find(name=>settings.yushe[name].cosjiSourcePreset===source&&settings.yushe[name].cosjiComfyUrl)|| (source&&availableAt(settings.yushe[source]||{},settings.comfyuiUrl)&&Object.hasOwn(settings.yushe,source)?source:namesFor(role)[0]);
+        const addressChoices=settings.yushe[current].cosjiPublicOutfit?publicNames():namesFor(role);
+        const variant=addressChoices.find(name=>settings.yushe[name].cosjiSourcePreset===source&&settings.yushe[name].cosjiComfyUrl)|| (source&&availableAt(settings.yushe[source]||{},settings.comfyuiUrl)&&Object.hasOwn(settings.yushe,source)?source:addressChoices[0]);
         if(variant)activate(variant);else{current='';draft=splitLoras();dirty=false;}
+    }
+    async function usePageAddress(url,forceCopy=false){
+        const target=normalizeComfyUrl(url);
+        if(activePageAddress)catalog.addressConfigs[activePageAddress]=capturePage(settings);
+        let page=catalog.addressConfigs[target];
+        if(!page||forceCopy){const result=await pageAddressDialog(capturePage(settings),catalog.comfyConnections,target);if(!result)return false;url=result.url;page=result.page;}
+        const actual=normalizeComfyUrl(url);applyPage(settings,page);migrateCatalog(settings);activePageAddress=actual;settings.comfyuiUrl=actual;
+        role=catalog.selectedRole;current=settings.yusheid_comfyui||Object.keys(settings.yushe)[0]||'';outfitTab=settings.yushe[current]?.cosjiPublicOutfit?'public':'role';draft=splitLoras(settings.yushe[current]);dirty=false;quickRole=role;
+        commonEditors=createCommonEditors({catalog,save,ask:askDialog,changed:()=>updateCompatibility()});
+        loraNames=[];loraVerifiedUrl='';syncNativeFields();save();return true;
     }
     const outfitName = name => settings.yushe[name]?.cosjiOutfitName || name;
     const allowSwitch = async () => !dirty || await askDialog('有未保存的提示词或 LoRA 修改，放弃修改并切换？','',true);
@@ -152,7 +181,8 @@ export function initCosji({settings, save, context, headers, refreshLLM, gallery
     }
     function activate(name) {
         if (!Object.hasOwn(settings.yushe, name)) return;
-        current = name; role = catalog.presetRoles[name]; catalog.selectedRole = role;
+        current = name; if(!settings.yushe[name].cosjiPublicOutfit)role = catalog.presetRoles[name]; catalog.selectedRole = role;
+        outfitTab=settings.yushe[name].cosjiPublicOutfit?'public':'role';
         quickRole=role;
         for (const mode of ['sd','novelai','comfyui']) settings['yusheid_' + mode] = name;
         settings.randomYushe = 'false';
@@ -161,19 +191,19 @@ export function initCosji({settings, save, context, headers, refreshLLM, gallery
     }
     function render() {
         const roles = catalog.roles.map(r => option(r.id, r.name, role)).join('');
-        const outfits = namesFor(role).map(name => option(name, outfitName(name), current)).join('');
+        const outfits = visibleOutfits().map(name => option(name, outfitName(name), current)).join('');
         const connectionOptions = catalog.comfyConnections.map(c => option(c.id, c.name, catalog.selectedConnection)).join('');
-        panel.innerHTML = `<h3>角色与服装预设</h3><p class="cosji-muted">角色负责分类，每套服装保存完整的正面、后置、负面提示词及 LoRA。</p>
+        panel.innerHTML = `<h3>角色与服装预设</h3><section class="cosji-civit-entry"><h4>整页地址配置</h4><p class="cosji-muted">当前地址：${esc(settings.comfyuiUrl||'未配置')} · 各地址的角色、公共预设和服装独立保存。</p>${button('page-copy-address','检测 → 复制整页配置 → 测试')}</section><p class="cosji-muted">角色负责分类，每套服装保存完整的正面、后置、负面提示词及 LoRA。</p>
           <div data-common-editor="all"></div>
           <label>角色分类</label><div class="cosji-row"><select id="cosji-role">${roles}</select>${button('role-new','新建角色')}${button('role-rename','改名')}${button('role-delete','删除分类')}</div>
-          <div data-common-editor="role"></div>
-          <label>服装（二级预设）</label><div class="cosji-row"><select id="cosji-outfit"><option value="">选择服装预设</option>${outfits}</select>${button('outfit-new','新建服装')}${button('outfit-copy','另存为')}${button('outfit-rename','改名')}${button('outfit-delete','删除')}${button('outfit-restore','恢复上次删除')}</div>
-          <div class="cosji-row">${button('outfit-apply','应用当前服装')}${button('outfit-copy-address','检测并复制到其他 ComfyUI 地址')}<span class="cosji-muted">${settings.yushe[current]?.cosjiComfyUrl?'绑定地址：'+esc(settings.yushe[current].cosjiComfyUrl):'此预设提示词可跨地址复用'}</span></div><p class="cosji-muted">当前已应用：${esc(outfitName(settings.yusheid_comfyui)||'未选择')}</p>
+          <div data-common-editor="role"></div><div class="cosji-row">${button('preset-generation-test','生图测试')}<span class="cosji-muted">合并当前角色、二级预设与公共配置</span></div>
+          <div class="cosji-outfit-tabs" role="tablist" aria-label="服装预设范围"><button type="button" role="tab" aria-selected="${outfitTab==='role'}" data-cos-action="tab-role">角色服装</button><button type="button" role="tab" aria-selected="${outfitTab==='public'}" data-cos-action="tab-public">公共服装</button></div><p class="cosji-muted">${outfitTab==='public'?'所有角色共用这些服装；应用时合并当前角色的公共提示词和 LoRA。':'当前角色专用的服装预设。'}</p><label>服装（二级预设）</label><div class="cosji-row"><select id="cosji-outfit"><option value="">选择服装预设</option>${outfits}</select>${button('outfit-new','新建服装')}${button('outfit-copy','另存为')}${button('outfit-rename','改名')}${button('outfit-delete','删除')}${button('outfit-restore','恢复上次删除')}</div>
+          <div class="cosji-row">${button('outfit-apply','应用当前服装')}${button('outfit-generation-test','生图测试')}<span class="cosji-muted">${settings.yushe[current]?.cosjiComfyUrl?'绑定地址：'+esc(settings.yushe[current].cosjiComfyUrl):'此预设提示词可跨地址复用'}</span></div><p class="cosji-muted">当前已应用：${esc(outfitName(settings.yusheid_comfyui)||'未选择')}</p>
           <div class="cosji-cover-row">${previewMarkup(settings.yushe[current])}<div>${button('cover-select','从生成缓存选择预览图')}${button('cover-remove','移除预览图')}</div></div>
-          <div class="cosji-outfit-strip">${namesFor(role).map(name=>`<button type="button" class="cosji-outfit-card ${name===current?'selected':''}" data-outfit-key="${esc(name)}" title="${esc(outfitName(name))}">${previewMarkup(settings.yushe[name],true)}<span>${esc(outfitName(name))}</span></button>`).join('')}</div>
+          <div class="cosji-outfit-strip">${visibleOutfits().map(name=>`<button type="button" class="cosji-outfit-card ${name===current?'selected':''}" data-outfit-key="${esc(name)}" title="${esc(outfitName(name))}">${previewMarkup(settings.yushe[name],true)}<span>${esc(outfitName(name))}</span></button>`).join('')}</div>
           ${settings.yushe[current]?.cosjiCivit ? `<p class="cosji-muted">来源：<a href="${esc(settings.yushe[current].cosjiCivit.sourceUrl)}" target="_blank" rel="noopener noreferrer">Civit 模型 ${esc(settings.yushe[current].cosjiCivit.modelId)}</a> · 版本 ${esc(settings.yushe[current].cosjiCivit.versionId)}</p>` : ''}
-          <div class="cosji-civit-entry"><label>Civit 服装批量导入<input id="cosji-civit-url" type="url" value="${esc(catalog.lastCivitUrl)}" placeholder="https://civitai.red/models/1145224/…"></label>${button('civit-fetch','识别 Trigger Words')}<p class="cosji-muted">识别名称后勾选批量新建到当前角色，已存在的服装自动跳过。地址自动记住上一次输入。</p></div>
-          <div class="cosji-row"><label>归类到 <select id="cosji-move-role">${roles}</select></label>${button('outfit-move','移动分类')}</div>
+          <div class="cosji-civit-entry"><label>Civit 服装批量导入<input id="cosji-civit-url" type="url" value="${esc(catalog.lastCivitUrl)}" placeholder="https://civitai.red/models/1145224/…"></label>${button('civit-fetch','识别 Trigger Words')}${button('civit-download','下载 LoRA 到目标 ComfyUI')}<p class="cosji-muted">识别名称后勾选批量新建到当前角色，已存在的服装自动跳过。地址自动记住上一次输入。</p></div>
+          <div class="cosji-row"><label>归类到 <select id="cosji-move-role">${roles}</select></label>${button('outfit-move','移动分类')}${button('outfit-share',settings.yushe[current]?.cosjiPublicOutfit?'转为当前角色服装':'转为公共服装')}</div>
           ${PROMPT_FIELDS.map((field,i) => `<details><summary>${['固定正面提示词','后置固定正面提示词','固定负面提示词'][i]}（点击展开）</summary><label><textarea data-cos-field="${field}" rows="4" ${!current?'disabled':''}>${esc(draft[field])}</textarea></label></details>`).join('')}
           <h4>LoRA</h4><p class="cosji-muted">每个 LoRA 可整项删除；模型权重和可选 CLIP 权重独立编辑。</p>
           <p id="cosji-lora-compatibility" class="cosji-muted"></p>
@@ -197,11 +227,11 @@ export function initCosji({settings, save, context, headers, refreshLLM, gallery
     async function askName(text, initial='') { return await askDialog(text,initial); }
     async function createOutfit(copy) {
         const name=await askName('服装名称'); if(!name) return;
-        const roleName=catalog.roles.find(r=>r.id===role)?.name || '未分类';
+        const roleName=outfitTab==='public'?'公共服装':catalog.roles.find(r=>r.id===role)?.name || '未分类';
         const key=roleName+' · '+name;
         if(Object.hasOwn(settings.yushe,key)) throw new Error('此角色下已存在同名服装');
-        settings.yushe[key]={...(copy ? settings.yushe[current] : {}), ...(copy ? joinLoras(draft) : {fixedPrompt:'',fixedPrompt_end:'',negativePrompt:''}), cosjiOutfitName:name};
-        catalog.presetRoles[key]=role; activate(key); status='服装预设已创建';
+        settings.yushe[key]={...(copy ? settings.yushe[current] : {}), ...(copy ? joinLoras(draft) : {fixedPrompt:'',fixedPrompt_end:'',negativePrompt:''}), cosjiOutfitName:name,cosjiPublicOutfit:outfitTab==='public'};
+        catalog.presetRoles[key]=outfitTab==='public'?'uncategorized':role; activate(key); status='服装预设已创建';
     }
     panel.addEventListener('input', e => {
         if(e.target.id==='cosji-civit-url'){catalog.lastCivitUrl=e.target.value;save();}
@@ -214,7 +244,7 @@ export function initCosji({settings, save, context, headers, refreshLLM, gallery
     panel.addEventListener('change', async e => {
         if(e.target.id==='cosji-role') {
             if(!await allowSwitch()) {e.target.value=role;return;}
-            role=e.target.value; catalog.selectedRole=role; current=namesFor(role)[0] || ''; draft=splitLoras(settings.yushe[current]); dirty=false; save(); render();
+            role=e.target.value; catalog.selectedRole=role; current=visibleOutfits()[0] || ''; draft=splitLoras(settings.yushe[current]); dirty=false; save(); render();
         }
         if(e.target.id==='cosji-outfit') {if(!await allowSwitch()) {e.target.value=current;return;} if(e.target.value) activate(e.target.value); render();}
         if(e.target.id==='cosji-connection') {catalog.selectedConnection=e.target.value; save();render();}
@@ -225,8 +255,17 @@ export function initCosji({settings, save, context, headers, refreshLLM, gallery
         if(outfit){if(await allowSwitch()){activate(outfit.dataset.outfitKey);render();}return;}
         const action=e.target.closest('[data-cos-action]')?.dataset.cosAction; if(!action)return;
         try {
+            if(action==='preset-generation-test'||action==='outfit-generation-test'){
+                if(action==='outfit-generation-test'&&!current)throw new Error('请先选择要测试的角色服装（二级预设）');
+                commonEditors.flush();
+                if(current)saveOutfit();
+                if(!generatePresetTest)throw new Error('生图测试未初始化，请刷新页面');
+                showPresetTest(presetTestSnapshot(settings,current||settings.yusheid_comfyui,role),generatePresetTest);return;
+            }
 
-
+            if(action==='tab-role'||action==='tab-public'){if(!await allowSwitch())return;outfitTab=action==='tab-public'?'public':'role';current=visibleOutfits()[0]||'';draft=splitLoras(settings.yushe[current]);dirty=false;render();return;}
+            if(action==='outfit-share'){if(!current)throw new Error('请先选择服装');saveOutfit();const shared=!settings.yushe[current].cosjiPublicOutfit;settings.yushe[current].cosjiPublicOutfit=shared;catalog.presetRoles[current]=shared?'uncategorized':role;outfitTab=shared?'public':'role';status=shared?'已转为公共服装':'已转为当前角色服装';}
+            if(action==='page-copy-address'){if(dirty)saveOutfit();const previous=settings.comfyuiUrl;if(!await usePageAddress(previous,true))return;const input=document.getElementById('comfyuiUrl');if(input)input.value=settings.comfyuiUrl;status='整页地址配置已保存并应用';render();renderQuick();refreshLoras();return;}
             if(action==='connection-apply'&&!await allowSwitch())return;
             if(action==='lora-refresh') {
                 const trigger=e.target.closest('button');trigger.disabled=true;
@@ -241,13 +280,19 @@ export function initCosji({settings, save, context, headers, refreshLLM, gallery
                 return;
             }
             if(action==='cover-remove') {if(!current)throw new Error('请先选择服装预设');delete settings.yushe[current].cosjiPreview;status='预览图已移除';}
+            if(action==='civit-download') {
+                civitDownloadDialog({url:panel.querySelector('#cosji-civit-url').value,address:settings.comfyuiUrl,onDownloaded:()=>refreshLoras()});
+                return;
+            }
             if(action==='civit-fetch') {
                 const url=panel.querySelector('#cosji-civit-url').value;
                 const trigger=e.target.closest('button');trigger.disabled=true;
                 status='正在读取 Civit 模型和 Trigger Words…';panel.querySelector('.cosji-status').textContent=status;
                 try {
                     const data=await fetchCivitModel(url);
+                    const existingPresets=new Set(Object.keys(settings.yushe));
                     const result=await previewCivitImport(data,settings,role);
+                    if(result&&outfitTab==='public')for(const name of Object.keys(settings.yushe))if(!existingPresets.has(name)){settings.yushe[name].cosjiPublicOutfit=true;catalog.presetRoles[name]='uncategorized';}
                     if(result){status=`已新建 ${result.created} 套服装，跳过 ${result.skipped} 套重复服装`;syncNativeFields();save();render();renderQuick();}
                 }catch(error){status=`读取失败：${error.message}`;panel.querySelector('.cosji-status').textContent=status;}
                 finally{trigger.disabled=false;}
@@ -258,20 +303,10 @@ export function initCosji({settings, save, context, headers, refreshLLM, gallery
             if(action==='role-delete') {if(role==='uncategorized')throw new Error('未分类为保留分类');if(!await allowSwitch())return;if(!await askDialog('删除此角色分类？其服装将移入“未分类”，不会删除提示词。','',true))return;for(const name of namesFor(role,true))catalog.presetRoles[name]='uncategorized';catalog.roles=catalog.roles.filter(r=>r.id!==role);role='uncategorized';current=namesFor(role)[0]||'';draft=splitLoras(settings.yushe[current]);dirty=false;}
             if(action==='outfit-new') {if(!await allowSwitch())return;await createOutfit(false);}
             if(action==='outfit-copy') await createOutfit(true);
-            if(action==='outfit-copy-address') {
-                if(!current)throw new Error('请先选择服装预设');
-                const source=current,targetRole=role;
-                const result=await copyAddressDialog({...settings.yushe[current],...joinLoras(draft)},catalog.comfyConnections,settings.comfyuiUrl,outfitName(current)+' · 地址副本');
-                if(!result)return;
-                const base=(catalog.roles.find(r=>r.id===targetRole)?.name||'未分类')+' · '+result.name;
-                let key=base,n=2;while(Object.hasOwn(settings.yushe,key))key=base+' ('+(n++)+')';
-                settings.yushe[key]={...result.preset,cosjiOutfitName:result.name,cosjiSourcePreset:settings.yushe[source].cosjiSourcePreset||source};catalog.presetRoles[key]=targetRole;
-                status='已保存绑定 '+result.preset.cosjiComfyUrl+' 的副本；切换到该地址后可选择';syncNativeFields();
-            }
             if(action==='outfit-save') saveOutfit();
             if(action==='outfit-apply'){saveOutfit();activate(current);status='已保存并应用当前服装：'+outfitName(current);}
-            if(action==='outfit-move') {if(!current)throw new Error('请先选择服装');catalog.presetRoles[current]=panel.querySelector('#cosji-move-role').value;role=catalog.presetRoles[current];catalog.selectedRole=role;}
-            if(action==='outfit-rename') {if(!current)throw new Error('请先选择服装');const name=await askName('服装名称',outfitName(current));if(!name)return;if(namesFor(role).some(n=>n!==current&&outfitName(n)===name))throw new Error('此角色下已存在同名服装');settings.yushe[current].cosjiOutfitName=name;}
+            if(action==='outfit-move') {if(!current)throw new Error('请先选择服装');settings.yushe[current].cosjiPublicOutfit=false;outfitTab='role';catalog.presetRoles[current]=panel.querySelector('#cosji-move-role').value;role=catalog.presetRoles[current];catalog.selectedRole=role;}
+            if(action==='outfit-rename') {if(!current)throw new Error('请先选择服装');const name=await askName('服装名称',outfitName(current));if(!name)return;if((outfitTab==='public'?publicNames(true):namesFor(role,true)).some(n=>n!==current&&outfitName(n)===name))throw new Error('此角色下已存在同名服装');settings.yushe[current].cosjiOutfitName=name;}
             if(action==='outfit-delete') {if(!current)throw new Error('请先选择服装');if(current==='默认')throw new Error('默认预设保留，可另存为后编辑');if(!await askDialog('删除这套服装预设？可使用“恢复上次删除”恢复。','',true))return;catalog.deletedPreset={name:current,preset:settings.yushe[current],role};delete settings.yushe[current];delete catalog.presetRoles[current];const fallback=namesFor(role)[0]||Object.keys(settings.yushe)[0];if(fallback)activate(fallback);else{current='';draft=splitLoras();dirty=false;}}
             if(action==='outfit-restore') {const d=catalog.deletedPreset;if(!d)throw new Error('没有可恢复的服装');if(Object.hasOwn(settings.yushe,d.name))throw new Error('同名预设已存在');settings.yushe[d.name]=d.preset;catalog.presetRoles[d.name]=catalog.roles.some(r=>r.id===d.role)?d.role:'uncategorized';delete catalog.deletedPreset;activate(d.name);}
             if(action==='lora-add') {if(!current)throw new Error('请先选择服装');const name=panel.querySelector('#cosji-lora-name').value.trim();const weight=panel.querySelector('#cosji-lora-weight').value;if(!name)throw new Error('请选择或输入 LoRA 名称');const l={name,weight,clipWeight:'',field:'fixedPrompt'};joinLoras({...draft,loras:[l]});draft.loras.push(l);markDirty();}
@@ -280,7 +315,7 @@ export function initCosji({settings, save, context, headers, refreshLLM, gallery
             if(action==='connection-save') {const c=catalog.comfyConnections.find(c=>c.id===catalog.selectedConnection);if(!c)throw new Error('请先选择或新建连接');const name=panel.querySelector('#cosji-connection-name').value.trim();if(!name)throw new Error('连接名称不能为空');if(catalog.comfyConnections.some(x=>x.id!==c.id&&x.name===name))throw new Error('连接名称已存在');c.name=name;c.url=normalizeComfyUrl(panel.querySelector('#cosji-connection-url').value);status='连接预设已保存';}
             if(action==='connection-rename') {const c=catalog.comfyConnections.find(c=>c.id===catalog.selectedConnection);if(!c)throw new Error('请先选择连接');const name=await askName('连接名称',c.name);if(!name)return;if(catalog.comfyConnections.some(x=>x.id!==c.id&&x.name===name))throw new Error('连接名称已存在');c.name=name;}
             if(action==='connection-delete') {const id=catalog.selectedConnection;if(!id)throw new Error('请先选择连接');catalog.comfyConnections=catalog.comfyConnections.filter(c=>c.id!==id);catalog.selectedConnection='';status='连接预设已删除，当前生图地址保持不变';}
-            if(action==='connection-apply') {const c=catalog.comfyConnections.find(c=>c.id===catalog.selectedConnection);if(!c)throw new Error('请先选择连接');settings.comfyuiUrl=c.url;loraNames=catalog.loraCatalog?.url===c.url?catalog.loraCatalog.names:[];const input=document.getElementById('comfyuiUrl');if(input){input.value=c.url;input.dispatchEvent(new Event('change',{bubbles:true}));}status='已切换 ComfyUI 连接，请读取 LoRA 列表';}
+            if(action==='connection-apply') {const c=catalog.comfyConnections.find(c=>c.id===catalog.selectedConnection);if(!c)throw new Error('请先选择连接');if(!await usePageAddress(c.url))return;const input=document.getElementById('comfyuiUrl');if(input){input.value=settings.comfyuiUrl;input.dispatchEvent(new Event('change',{bubbles:true}));}status='已切换整页地址配置';}
             save();render();renderQuick();
             if(action==='connection-apply'){adaptAddressSelection();render();renderQuick();refreshLoras();}
         } catch(err) {status=err.message;const el=panel.querySelector('.cosji-status');if(el)el.textContent=status;}
@@ -314,18 +349,19 @@ export function initCosji({settings, save, context, headers, refreshLLM, gallery
         const selectedRole=quickRole||catalog.presetRoles[selected] || catalog.selectedRole;
         const q=quick.querySelector('#cosji-quick-panel');
         const sizeControls=`<details><summary>连接与尺寸 · ${esc(settings.comfyui_width)} × ${esc(settings.comfyui_height)}</summary><label>ComfyUI 连接<select id="cosji-quick-connection">${option("","当前地址 · "+(settings.comfyuiUrl||"未配置"),"")}${catalog.comfyConnections.map(c=>option(c.id,c.name,"__current__")).join("")}</select></label><label>尺寸来源<select id="cosji-quick-size-mode">${option('fixed','固定使用设置尺寸',String(settings.aiAutonomousResolution)==='false'?'fixed':'ai')}${option('ai','允许 AI 决定尺寸',String(settings.aiAutonomousResolution)==='false'?'fixed':'ai')}</select></label><label>宽<input id="cosji-quick-width" type="number" min="64" max="8192" step="8" value="${esc(settings.comfyui_width)}"></label><label>高<input id="cosji-quick-height" type="number" min="64" max="8192" step="8" value="${esc(settings.comfyui_height)}"></label><button type="button" id="cosji-quick-size-save">应用尺寸</button><span id="cosji-quick-size-status"></span></details>`;
-        q.innerHTML=`<div class="cosji-quick-header"><strong>cos姬 · 生图快捷</strong><button type="button" data-cosji-close-quick aria-label="关闭快捷窗口">×</button></div><label>角色${quickPicker("role","选择角色",selectedRole,catalog.roles.map(r=>({value:r.id,text:r.name})))}</label><label>服装${quickPicker("outfit","选择服装",selected,namesFor(selectedRole).map(n=>({value:n,text:outfitName(n)})))}</label><div class="cosji-cover-row">${previewMarkup(settings.yushe[selected],true)}<span>当前：${esc(outfitName(selected))}</span></div><label style="display:flex;align-items:center;gap:8px"><input style="width:auto" type="checkbox" id="cosji-quick-outfit-override" ${catalog.outfitOverride===true?'checked':''}>预设服装覆盖 LLM 服装</label><small id="cosji-quick-override-status">${catalog.outfitOverride===true?'已开启：后续新生成以预设服装为准':'关闭时保留 LLM 服装并合并预设'}</small>${sizeControls}<button type="button" id="cosji-quick-edit">编辑预设</button><button type="button" id="cosji-quick-settings">⚙ 完整生图设置</button>`;
+        q.innerHTML=`<div class="cosji-quick-header"><strong>cos姬 · 生图快捷</strong><button type="button" data-cosji-close-quick aria-label="关闭快捷窗口">×</button></div><label>角色${quickPicker("role","选择角色",selectedRole,catalog.roles.map(r=>({value:r.id,text:r.name})))}</label><label>服装${quickPicker("outfit","选择服装",selected,selectableOutfits(selectedRole).map(n=>({value:n,text:(settings.yushe[n].cosjiPublicOutfit?'公共 · ':'')+outfitName(n)})))}</label><div class="cosji-cover-row">${previewMarkup(settings.yushe[selected],true)}<span>当前：${esc(outfitName(selected))}</span></div><label style="display:flex;align-items:center;gap:8px"><input style="width:auto" type="checkbox" id="cosji-quick-outfit-override" ${catalog.outfitOverride===true?'checked':''}>预设服装覆盖 LLM 服装</label><small id="cosji-quick-override-status">${catalog.outfitOverride===true?'已开启：后续新生成以预设服装为准':'关闭时保留 LLM 服装并合并预设'}</small>${sizeControls}<button type="button" id="cosji-quick-edit">编辑预设</button><button type="button" id="cosji-quick-settings">⚙ 完整生图设置</button>`;
     }
     quick.addEventListener('click',e=>{
         if(e.target.id==='cosji-quick-edit')showEditor();
         if(e.target.closest('#cosji-quick-settings')){closeCosjiQuick(document);window.showChatuSettingsPanel?.();}
         if(e.target.closest('[data-cosji-close-quick]'))closeCosjiQuick(document);
     });
-    quick.addEventListener('change',e=>{
+    quick.addEventListener('change',async e=>{
         if(e.target.id==='cosji-quick-connection'){
             const c=catalog.comfyConnections.find(c=>c.id===e.target.value);if(!c)return;
-            catalog.selectedConnection=c.id;settings.comfyuiUrl=c.url;
-            if(comfyInput){comfyInput.value=c.url;comfyInput.dispatchEvent(new Event('change',{bubbles:true}));}
+            if(!await allowSwitch()||!await usePageAddress(c.url)){renderQuick();return;}
+            catalog.selectedConnection=c.id;
+            if(comfyInput){comfyInput.value=settings.comfyuiUrl;comfyInput.dispatchEvent(new Event('change',{bubbles:true}));}
             loraNames=catalog.loraCatalog?.url===c.url?catalog.loraCatalog.names:[];
             save();adaptAddressSelection();render();renderQuick();refreshLoras();return;
         }
@@ -335,11 +371,11 @@ export function initCosji({settings, save, context, headers, refreshLLM, gallery
     });
     quick.addEventListener('click',async e=>{
         const roleButton=e.target.closest('[data-quick-role]');
-        if(roleButton){quickRole=roleButton.dataset.quickRole;renderQuick();return;}
+        if(roleButton){quickRole=roleButton.dataset.quickRole;catalog.selectedRole=quickRole;role=quickRole;save();renderQuick();return;}
         const outfitButton=e.target.closest('[data-quick-outfit]');
         if(!outfitButton)return;
         if(!await allowSwitch())return;
-        quickRole=catalog.presetRoles[outfitButton.dataset.quickOutfit];
+        if(!settings.yushe[outfitButton.dataset.quickOutfit].cosjiPublicOutfit)quickRole=catalog.presetRoles[outfitButton.dataset.quickOutfit];
         activate(outfitButton.dataset.quickOutfit);render();
     });
     quick.addEventListener('click',e=>{
@@ -359,7 +395,7 @@ export function initCosji({settings, save, context, headers, refreshLLM, gallery
     if(!loraNames.length&&loraCache)loraCache().then(cache=>{if(Array.isArray(cache?.loras)&&!loraNames.length){loraNames=cache.loras.filter(name=>typeof name==='string'&&name.trim());updateLoraSelect();}}).catch(()=>{});
     adaptAddressSelection();
     if(settings.lastTab==='cosji')showEditor();
-    comfyInput?.addEventListener('change',e=>{if(e.isTrusted){loraNames=[];updateLoraSelect();refreshLoras();}});
+    comfyInput?.addEventListener('change',async e=>{if(e.isTrusted){try{if(!await allowSwitch()||!await usePageAddress(e.target.value)){settings.comfyuiUrl=activePageAddress;e.target.value=activePageAddress;save();return;}e.target.value=settings.comfyuiUrl;render();renderQuick();refreshLoras();}catch(error){settings.comfyuiUrl=activePageAddress;e.target.value=activePageAddress;status=error.message;render();}}});
     refreshLoras();
 }
 

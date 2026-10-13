@@ -80,3 +80,22 @@
     opacity: 0.8;
     font-weight: 600;
 }
+/* Vocabulary picker within generation demand popups. */
+#user-demand-overlay .st-chatu8-popup-bubble{width:min(680px,calc(100vw - 24px));max-height:calc(100dvh - 32px);overflow-y:auto;box-sizing:border-box}
+.cosji-demand-vocabulary{margin:12px 0;padding:10px;border:1px solid #605079;border-radius:9px;text-align:left}
+.cosji-demand-vocabulary summary{cursor:pointer;font-weight:600;margin-bottom:8px}
+.cosji-demand-search{display:grid;grid-template-columns:1fr 1.4fr auto;gap:6px}
+.cosji-demand-vocabulary input,.cosji-demand-vocabulary select,.cosji-demand-vocabulary button{min-width:0;background:#282239;color:inherit;border:1px solid #665180;border-radius:6px;padding:7px;box-sizing:border-box}
+.cosji-demand-vocabulary [data-vocab-status]{font-size:.85em;opacity:.8;margin:8px 0}
+.cosji-demand-results{display:grid;grid-template-columns:1fr 1fr;gap:5px;max-height:190px;overflow-y:auto}
+.cosji-demand-results button{text-align:left;cursor:pointer;overflow-wrap:anywhere}
+.cosji-demand-results strong,.cosji-demand-results span{display:block}
+.cosji-demand-results span{opacity:.7;font-size:.85em}
+.cosji-demand-results button[aria-pressed="true"]{border-color:#be8bf7;background:#493061}
+.cosji-demand-selected-header{display:flex;justify-content:space-between;align-items:center;margin-top:9px;font-size:.9em}
+.cosji-demand-selected{display:flex;gap:5px;flex-wrap:wrap;margin-top:6px}
+.cosji-demand-selected button{cursor:pointer;padding:4px 7px}
+@media(max-width:480px){.cosji-demand-search{grid-template-columns:1fr auto}.cosji-demand-search select{grid-column:1/-1}.cosji-demand-results{grid-template-columns:1fr}}
+
+.cosji-demand-pagination{display:flex;gap:6px;align-items:center;justify-content:center;flex-wrap:wrap;margin:8px 0;font-size:.85em}
+.cosji-demand-pagination button:disabled{opacity:.4;cursor:default}

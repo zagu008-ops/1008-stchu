@@ -1,3 +1,5 @@
+import {readGenerationStream} from './cosji-generation-stream.mjs';
+import {mountDemandVocabulary} from './cosji-demand-vocabulary.mjs';
 import { resolveNativeProfile as cosjiResolveNativeProfile, withCommonPrompts as cosjiWithCommonPrompts } from './cosji-core.mjs';
 import {resolveWorkflow as cosjiResolveWorkflow} from './cosji-workflow.mjs';
 import {resolveComfySize} from './cosji-size.mjs';
@@ -6553,11 +6555,11 @@ async function getTagsTreeData() {
   return finalTree;
 }
 async function searchTags(keyword, options = {}) {
-  if (!keyword) {
+  if (!keyword && !options.browse) {
     return [];
   }
   const { startsWith = false, limit = 100, sortBy = "hot_asc" } = options;
-  const lowerCaseKeyword = keyword.toLowerCase();
+  const lowerCaseKeyword = String(keyword || "").toLowerCase();
   const db2 = await openDB();
   const transaction = db2.transaction("tags", "readonly");
   const store = transaction.objectStore("tags");
@@ -6574,7 +6576,7 @@ async function searchTags(keyword, options = {}) {
         nameMatch = tag.name && tag.name.toLowerCase().includes(lowerCaseKeyword);
         translationMatch = tag.translation && tag.translation.toLowerCase().includes(lowerCaseKeyword);
       }
-      if ((nameMatch || translationMatch) && !allMatches.has(tag.name)) {
+      if ((nameMatch || translationMatch) && (!options.fileName || tag.fileName === options.fileName) && !allMatches.has(tag.name)) {
         allMatches.set(tag.name, tag);
       }
       cursor.continue();
@@ -6610,6 +6612,10 @@ async function searchTags(keyword, options = {}) {
     }
     return 0;
   });
+  if (options.paged) {
+    const offset=Math.max(0,Number(options.offset)||0);
+    return {items:results.slice(offset,offset+limit),total:results.length};
+  }
   return results.slice(0, limit);
 }
 async function addTag(tag) {
@@ -37026,6 +37032,7 @@ function showUserDemandPopup() {
     confirmBtn.textContent = "\u786E\u5B9A\u751F\u6210";
     confirmBtn.className = "st-chatu8-popup-btn-confirm";
     const closePopup = (result) => {
+      vocabulary.dispose();
       overlay2.classList.add("closing");
       setTimeout(() => {
         if (fileInput) fileInput.remove();
@@ -37035,7 +37042,7 @@ function showUserDemandPopup() {
     };
     cancelBtn.addEventListener("click", () => closePopup(null));
     confirmBtn.addEventListener("click", () => closePopup({
-      text: textarea.value.trim() || null,
+      text: vocabulary.getText(textarea.value.trim()) || null,
       images: [...uploadedImages]
     }));
     const handleKeydown = (e) => {
@@ -37044,7 +37051,7 @@ function showUserDemandPopup() {
         document.removeEventListener("keydown", handleKeydown);
       } else if (e.key === "Enter" && e.ctrlKey) {
         closePopup({
-          text: textarea.value.trim() || null,
+          text: vocabulary.getText(textarea.value.trim()) || null,
           images: [...uploadedImages]
         });
         document.removeEventListener("keydown", handleKeydown);
@@ -37056,6 +37063,7 @@ function showUserDemandPopup() {
     bubble.appendChild(title);
     bubble.appendChild(hint);
     bubble.appendChild(textarea);
+    const vocabulary = mountDemandVocabulary({bubble,textarea,confirmBtn,db:dbs});
     bubble.appendChild(imageUploadSection);
     bubble.appendChild(buttonContainer);
     overlay2.appendChild(bubble);
@@ -38722,6 +38730,7 @@ function showUserDemandPopup2(options = {}) {
     placeholder: customPlaceholder = "\u4F8B\u5982\uFF1A\u91CD\u70B9\u63CF\u7ED8\u573A\u666F\u6C1B\u56F4\uFF0C\u5149\u7EBF\u67D4\u548C...",
     defaultText = "",
     videoAssetMode = false,
+    directTags = false,
     firstFrameSrc = ""
   } = options;
   return new Promise((resolve) => {
@@ -38872,6 +38881,7 @@ function showUserDemandPopup2(options = {}) {
     confirmBtn.textContent = "\u786E\u5B9A\u751F\u6210";
     confirmBtn.className = "st-chatu8-popup-btn-confirm";
     const closePopup = (result) => {
+      vocabulary.dispose();
       overlay2.classList.add("closing");
       setTimeout(() => {
         if (fileInput) fileInput.remove();
@@ -38881,7 +38891,7 @@ function showUserDemandPopup2(options = {}) {
     };
     cancelBtn.addEventListener("click", () => closePopup(null));
     confirmBtn.addEventListener("click", () => closePopup({
-      text: textarea.value.trim() || "",
+      text: (directTags ? vocabulary.getDirectText(textarea.value.trim()) : vocabulary.getText(textarea.value.trim())) || "",
       images: [...uploadedImages]
     }));
     const handleKeydown = (e) => {
@@ -38890,7 +38900,7 @@ function showUserDemandPopup2(options = {}) {
         document.removeEventListener("keydown", handleKeydown);
       } else if (e.key === "Enter" && e.ctrlKey) {
         closePopup({
-          text: textarea.value.trim() || "",
+          text: (directTags ? vocabulary.getDirectText(textarea.value.trim()) : vocabulary.getText(textarea.value.trim())) || "",
           images: [...uploadedImages]
         });
         document.removeEventListener("keydown", handleKeydown);
@@ -38902,7 +38912,8 @@ function showUserDemandPopup2(options = {}) {
     bubble.appendChild(title);
     bubble.appendChild(hint);
     bubble.appendChild(textarea);
-    bubble.appendChild(imageUploadSection);
+    const vocabulary = mountDemandVocabulary({bubble,textarea,confirmBtn,db:dbs});
+    if (!directTags) bubble.appendChild(imageUploadSection);
     bubble.appendChild(buttonContainer);
     overlay2.appendChild(bubble);
     document.body.appendChild(overlay2);
@@ -38931,6 +38942,58 @@ async function runCosjiGenerationTest(historyId) {
   await setItemImg('cosji-neutral-test-'+requestId,result.image,{genParams:result.genParams,isVideo:false,format:result.format});
   eventSource21.emit(EventType.GENERATE_IMAGE_RESPONSE,{id:requestId,success:true,imageData:result.image,format:result.format});
   return result.image;
+}
+async function runPresetGenerationTest(snapshot,prompt,onProgress=()=>{}) {
+  if(!isPluginEnabled())throw new Error('请先开启插件总开关');
+  const historyId=historyStart('当前预设生图测试',{角色:snapshot.roleName,二级预设:snapshot.outfitName});
+  const requestId='cosji-preset-test-'+cosjiCreateId();
+  historyRequest({id:requestId,prompt,cosjiHistoryId:historyId});
+  try {
+    onProgress('等待本地队列与准备工作流');
+    const settings=extension_settings40[extensionName];
+    const result=await generateComfyUIImage({prompt,width:Number(settings.comfyui_width),height:Number(settings.comfyui_height),historyRequestId:requestId,presetId:snapshot.presetId,diagnosticPreset:snapshot.preset,onProgress});
+    if(!result?.image)throw new Error('ComfyUI 未返回图片');
+    await setItemImg('cosji-preset-test-'+requestId,result.image,{genParams:result.genParams,isVideo:!!result.isVideo,format:result.format});
+    eventSource21.emit(EventType.GENERATE_IMAGE_RESPONSE,{id:requestId,success:true,imageData:result.image,format:result.format});
+    historyStep(historyId,'预设测试成功，图片已保存到缓存',{},'success');
+    return result.image;
+  } catch(e){historyStep(historyId,e.message,{},'failed');throw e;}
+}
+async function handleDirectTagGeneration(el) {
+  if (!isPluginEnabled()) {toastr.warning('请先开启插件总开关');return;}
+  const mes=el?.closest?.('.mes'), index=Number(mes?.getAttribute('mesid'));
+  const context=getContext12(), message=context.chat?.[index];
+  if (!mes || !message) {toastr.warning('请在聊天楼层中操作');return;}
+  const demand=await showUserDemandPopup2({directTags:true,title:'词条直接生图',hint:'选择词条，或输入英文 Tag；跳过 AI，合并当前公共、角色、服装预设与 LoRA，提交 ComfyUI。',placeholder:'例如：smile, outdoors, sunlight'});
+  if (!demand) return;
+  if (!demand.text.trim()) {toastr.warning('请至少选择一个词条或输入 Tag');return;}
+  const historyId=historyStart('词条直接生图',{入口:'双击菜单 / 词条直接生图',楼层:index});
+  const requestId='cosji-direct-'+cosjiCreateId(), prompt=normalizePromptTag(demand.text);
+  const settings=extension_settings40[extensionName];
+  historyRequest({id:requestId,prompt,cosjiHistoryId:historyId});
+  try {
+    await withProgressToast(toastr,'词条正在直接生图…',async()=>{
+      const result=await generateComfyUIImage({prompt,width:Number(settings.comfyui_width),height:Number(settings.comfyui_height),historyRequestId:requestId,presetId:settings.yusheid_comfyui});
+      if (!result?.image) throw new Error('ComfyUI 未返回图片');
+      await setItemImg(prompt,result.image,{genParams:result.genParams,isVideo:!!result.isVideo,format:result.format});
+      if (getContext12().chat?.[index]!==message) {historyStep(historyId,"图片已缓存；聊天已切换，未修改楼层",{},"success");toastr.info("图片已保存到缓存，聊天已切换");return;}
+      const {startTag,endTag}=getImageTags();
+      const tag=startTag+prompt+endTag;
+      if (!message.mes.includes(tag)) message.mes+='\n\n'+tag;
+      await saveChatConditional();
+      const live=getContext12();
+      if (live.chat?.[index]===message) {
+        const text=mes.querySelector('.mes_text');
+        if (text && mes.isConnected) {
+          text.innerHTML=messageFormatting(message.mes,message.name,message.is_system,message.is_user,index);
+          text.dataset.cosjiHistoryId=historyId;
+          await processImagePlaceholdersForElement(text);
+        }
+      }
+      eventSource21.emit(EventType.GENERATE_IMAGE_RESPONSE,{id:requestId,success:true,imageData:result.image,format:result.format});
+      historyStep(historyId,'图片已生成并保存到楼层',{},'success');
+    });
+  } catch(error) {historyStep(historyId,error.message,{},'failed');toastr.error(error.message);}
 }
 async function handlePromptRequest(el, gestureId) {
   const historyId=historyStart('提示词 → 生图',{入口:'双击菜单 / 图片生成',楼层:el?.closest?.('.mes')?.getAttribute('mesid')});
@@ -47185,7 +47248,7 @@ async function replacepro(payload, json4) {
   JSON.parse(json4);
   return json4;
 }
-async function generateComfyUIImage({ prompt: link, width: Xwidth, height: Xheight, change, extraNegativePrompt, historyRequestId, diagnosticPreset }) {
+async function generateComfyUIImage({ prompt: link, width: Xwidth, height: Xheight, change, extraNegativePrompt, historyRequestId, diagnosticPreset, presetId, onProgress }) {
   historyBackend(historyRequestId,'ComfyUI 处理器已接收，等待本地并发队列');
   clearLog();
   let taskType = TaskType.COMFYUI_IMG;
@@ -47308,7 +47371,7 @@ async function generateComfyUIImage({ prompt: link, width: Xwidth, height: Xheig
       }
     }
   }
-  const _comfyui_yushe_id = getRandomYusheId("yusheid_comfyui");
+  const _comfyui_yushe_id = presetId || getRandomYusheId("yusheid_comfyui");
   if (!extension_settings49[extensionName].yushe || !extension_settings49[extensionName].yushe[_comfyui_yushe_id]) {
     toastr.error("\u672A\u80FD\u627E\u5230\u6240\u9009\u7684\u56FA\u5B9A\u63D0\u793A\u8BCD\u9884\u8BBE\u3002\u8BF7\u524D\u5F80\u63D2\u4EF6\u8BBE\u7F6E\u4E2D\u65B0\u5EFA\u6216\u9009\u62E9\u4E00\u4E2A\u56FA\u5B9A\u63D0\u793A\u8BCD\u3002", "ComfyUI \u751F\u56FE\u9519\u8BEF");
     taskQueue.completeTask(taskId, false);
@@ -47508,7 +47571,8 @@ Scheduler: ${payload.scheduler}
         method: "POST",
         body: JSON.stringify({
           url,
-          prompt: payload
+          prompt: payload,
+          stream:!!onProgress
         }),
         headers: getRequestHeaders(window.token),
         signal: abortController.signal
@@ -47519,7 +47583,7 @@ Scheduler: ${payload.scheduler}
         taskQueue.completeTask(taskId, false);
         throw new Error(`\u8BF7\u6C42\u5931\u8D25, \u72B6\u6001\u7801: ${response.status}, \u8BE6\u60C5: ${errorText} `);
       }
-      const responseText = await response.text();
+      const responseText = onProgress ? JSON.stringify(await readGenerationStream(response,onProgress)) : await response.text();
       let format, data;
       try {
         const jsonResponse = JSON.parse(responseText);
@@ -54556,7 +54620,7 @@ async function downloadBlob(blob, filename) {
     topURL.revokeObjectURL(url);
   }, 150);
 }
-function showImagePreview(img, button, autoFullscreen = false) {
+function showImagePreview(img, button, autoFullscreen = false, boundaryIndex = null) {
   const doc = window.top.document;
   const currentTag = button.dataset.link;
   const verifiedInitialSrc = img && img.tagName === "VIDEO" ? img.dataset.blobUrl || img.src || "" : "";
@@ -54779,6 +54843,28 @@ function showImagePreview(img, button, autoFullscreen = false) {
         border: 1px solid rgba(255, 255, 255, 0.2);
         user-select: none;
     `;
+  const chatRoot=button.closest('.mes')?.closest('#chat, #chat-body, .chat-log') || savedChatEl;
+  function floorMedia() {
+    if (!chatRoot) return [];
+    return [...chatRoot.querySelectorAll('.st-chatu8-image-button[data-link]')].map(b=>{
+      const span=b.nextElementSibling;
+      const media=span?.querySelector('img, video');
+      return {button:b,img:media};
+    }).filter(x=>x.img && x.button.dataset.link);
+  }
+  function hasOtherFloorMedia(){return floorMedia().some(x=>x.button.dataset.link!==currentTag);}
+  function navigateMedia(direction) {
+    const next=currentIndex+direction;
+    if(next>=0 && next<images.length){updateLargeImage(next);return;}
+    const candidates=floorMedia(), position=candidates.findIndex(x=>x.button===button);
+    for(let i=position+direction;position>=0 && i>=0 && i<candidates.length;i+=direction){
+      const target=candidates[i];
+      if(target.button.dataset.link===currentTag)continue;
+      closeButton.onclick();
+      showImagePreview(target.img,target.button,isImmersive,direction<0?'last':'first');
+      return;
+    }
+  }
   const prevButton = doc.createElement("div");
   prevButton.className = "st-chatu8-preview-nav prev";
   prevButton.innerHTML = "&#10094;";
@@ -54790,8 +54876,7 @@ function showImagePreview(img, button, autoFullscreen = false) {
     prevButton.style.transform = "translateY(-50%)";
   };
   prevButton.onclick = () => {
-    if (images.length <= 1) return;
-    updateLargeImage((currentIndex - 1 + images.length) % images.length);
+    navigateMedia(-1);
   };
   const nextButton = doc.createElement("div");
   nextButton.className = "st-chatu8-preview-nav next";
@@ -54804,8 +54889,7 @@ function showImagePreview(img, button, autoFullscreen = false) {
     nextButton.style.transform = "translateY(-50%)";
   };
   nextButton.onclick = () => {
-    if (images.length <= 1) return;
-    updateLargeImage((currentIndex + 1) % images.length);
+    navigateMedia(1);
   };
   imageContainer.appendChild(prevButton);
   imageContainer.appendChild(nextButton);
@@ -54820,7 +54904,9 @@ function showImagePreview(img, button, autoFullscreen = false) {
   let dragDx = 0;
   let horizontal = null;
   function navigate(dir) {
-    if (animating || images.length <= 1) return;
+    if (animating) return;
+    if(currentIndex+dir<0 || currentIndex+dir>=images.length){navigateMedia(dir);return;}
+    if(images.length<=1)return;
     animating = true;
     const n = images.length;
     const newIndex = (currentIndex + dir + n) % n;
@@ -55139,12 +55225,12 @@ function showImagePreview(img, button, autoFullscreen = false) {
   });
   const keyHandler = (e) => {
     if (!doc.body.contains(backdrop)) return;
-    if (e.key === "ArrowLeft" && images.length > 1) {
+    if (e.key === "ArrowLeft") {
       e.preventDefault();
-      updateLargeImage((currentIndex - 1 + images.length) % images.length);
-    } else if (e.key === "ArrowRight" && images.length > 1) {
+      navigateMedia(-1);
+    } else if (e.key === "ArrowRight") {
       e.preventDefault();
-      updateLargeImage((currentIndex + 1) % images.length);
+      navigateMedia(1);
     } else if (e.key === "Escape") {
       e.preventDefault();
       if (isImmersive) {
@@ -55296,7 +55382,7 @@ function showImagePreview(img, button, autoFullscreen = false) {
       imageCounter.style.display = "";
       actionContainer.style.display = "flex";
       floatingTools.style.display = "none";
-      const showNav = images.length > 1;
+      const showNav = images.length > 1 || hasOtherFloorMedia();
       prevButton.style.display = showNav ? "flex" : "none";
       nextButton.style.display = showNav ? "flex" : "none";
       if (!isLandscape) {
@@ -55777,7 +55863,7 @@ function showImagePreview(img, button, autoFullscreen = false) {
     currentIndex = index;
     imageCounter.textContent = `${currentIndex + 1} / ${images.length}`;
     renderCurrentParams();
-    const showNav = images.length > 1;
+    const showNav = images.length > 1 || hasOtherFloorMedia();
     prevButton.style.display = showNav ? "flex" : "none";
     nextButton.style.display = showNav ? "flex" : "none";
     revokeTrackBlobUrls();
@@ -55826,7 +55912,7 @@ function showImagePreview(img, button, autoFullscreen = false) {
     }));
     images = new Array(merged.images.length).fill(null);
     const targetIndex = merged.currentIndex >= 0 && merged.currentIndex < merged.images.length ? merged.currentIndex : 0;
-    updateLargeImage(targetIndex);
+    updateLargeImage(boundaryIndex==='last'?images.length-1:boundaryIndex==='first'?0:targetIndex);
     (async () => {
       const thumbnailPromises = merged.images.map(async (imageEntry, index) => {
         const isVideo = imageEntry.isVideo || false;
@@ -105048,6 +105134,7 @@ function showClickActionBubble(point, targetElement) {
     if (pageNumber === 1) {
       buttonsToRender = [
         allActions.imageGen,
+        {text:"词条直接生图",icon:"fa-solid fa-tags",description:"跳过 AI，词条合并当前预设后提交 ComfyUI",action:()=>handleDirectTagGeneration(targetElement)},
         {text:'生图任务历史',icon:'fa-solid fa-clock-rotate-left',description:'查看进度、结果和失败原因',action:openHistory},
         allActions.visualPrep,
         allActions.charDesign,
@@ -111146,8 +111233,14 @@ async function initUI({ check_update: check_update2 }) {
         settings2.MODEL_NAME = normalizeBackslashPath3(settings2.MODEL_NAME);
         modelSelect2.value = settings2.MODEL_NAME;
         if (modelSelect2.selectedIndex === -1 && modelSelect2.options.length > 0) {
-          modelSelect2.selectedIndex = 0;
-          settings2.MODEL_NAME = normalizeBackslashPath3(modelSelect2.value);
+          // Cached catalogs may belong to a previous server; retain the user's model.
+          if (settings2.MODEL_NAME && settings2.MODEL_NAME !== "连接后选择") {
+            modelSelect2.add(new Option(settings2.MODEL_NAME + "（待刷新模型列表）", settings2.MODEL_NAME));
+            modelSelect2.value = settings2.MODEL_NAME;
+          } else {
+            modelSelect2.selectedIndex = 0;
+            settings2.MODEL_NAME = normalizeBackslashPath3(modelSelect2.value);
+          }
         }
       }
       if (vaeSelect) {
@@ -113095,6 +113188,7 @@ async function main() {
   await initUI({ check_update });
   initHistory(extension_settings116[extensionName],saveSettingsDebounced72,{cache:saveFullComfyuiCache,test:runCosjiGenerationTest});
   initCosji({
+    generatePresetTest:runPresetGenerationTest,
     saveComfyCache:saveFullComfyuiCache,
     loraCache: getFullComfyuiCache,
     gallery: {metadata:getAllImageMetadata, thumbnail:getImageThumbnailBlobByUUID, image:getImageBlobByUUID},
