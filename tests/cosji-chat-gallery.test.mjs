@@ -21,3 +21,20 @@ mb.isConnected=false;assert.deepEqual(collectChatMedia(root).map(e=>e.button),[a
 const d=button('fallback'),md=media();d.nextElementSibling={matches:()=>true,querySelector:()=>md};
 assert.equal(collectChatMedia({querySelectorAll:()=>[d]})[0].img,md);
 console.log('PASS: cross-floor/iframe order, repeated prompts, missing media, stale nodes and navigation boundaries');
+
+const {chatMediaGroups,cachedChatMediaGroups,chatMediaFloor}=await import('../cosji-chat-gallery.mjs');
+const chat=[{mes:'image###old, cached###'}, {mes:'no generated image'}, {mes:'<image>same</image>'}, {mes:'<image>same</image> image###not generated###'}];
+const groups=chatMediaGroups(chat);
+assert.deepEqual(groups.map(g=>[g.floor,g.tag]),[[0,'old, cached'],[2,'same'],[3,'same'],[3,'not generated']]);
+let reads=0;
+const cached=await cachedChatMediaGroups(groups,async tag=>{reads++;return {images:tag==='not generated'?[]:[1]};});
+assert.deepEqual(cached.map(g=>g.floor),[0,2,3],'unrendered earlier floors remain navigable');
+assert.equal(reads,3,'same prompt across floors reads storage once but keeps both floors');
+assert.equal(chatMediaGroups([{mes:'BEGIN a\nb END BEGIN a\nb END'}],{startTag:'BEGIN ',endTag:' END',normalize:s=>s.replaceAll('\n','')}).length,1);
+const mes={getAttribute:()=> '12'};
+const frame={closest:()=>mes};
+const framedButton={closest:()=>null,ownerDocument:{defaultView:{frameElement:frame}}};
+assert.equal(chatMediaFloor(framedButton),12);
+assert.equal(chatMediaFloor({closest:()=>null}),null);
+const failed=await cachedChatMediaGroups(groups,async()=>{throw Error('missing storage');});assert.deepEqual(failed,[]);
+console.log('PASS: chat-history indexing, unloaded floors, repeated tags, absent caches and iframe floor identity');

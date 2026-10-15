@@ -1,4 +1,4 @@
-import {registerChatMedia,collectChatMedia,adjacentChatMedia} from './cosji-chat-gallery.mjs';
+import {registerChatMedia,collectChatMedia,adjacentChatMedia,chatMediaGroups,cachedChatMediaGroups,chatMediaFloor} from './cosji-chat-gallery.mjs';
 import { saveSettings as cosjiSaveNativeSettings } from '../../../../script.js';
 import {readGenerationStream} from './cosji-generation-stream.mjs';
 import {mountDemandVocabulary} from './cosji-demand-vocabulary.mjs';
@@ -54623,7 +54623,7 @@ async function downloadBlob(blob, filename) {
     topURL.revokeObjectURL(url);
   }, 150);
 }
-function showImagePreview(img, button, autoFullscreen = false, boundaryIndex = null) {
+function showImagePreview(img, button, autoFullscreen = false, boundaryIndex = null, chatGallery = null) {
   const doc = window.top.document;
   const currentTag = button.dataset.link;
   const verifiedInitialSrc = img && img.tagName === "VIDEO" ? img.dataset.blobUrl || img.src || "" : "";
@@ -54847,7 +54847,11 @@ function showImagePreview(img, button, autoFullscreen = false, boundaryIndex = n
         user-select: none;
     `;
   const chatRoot=button.closest('.mes')?.closest('#chat, #chat-body, .chat-log') || savedChatEl;
-  function floorMedia() { return collectChatMedia(chatRoot); }
+  function floorMedia() { return chatGallery || collectChatMedia(chatRoot); }
+  function updateMediaCounter(){
+    const entries=floorMedia(),position=entries.findIndex(entry=>entry.button===button);
+    imageCounter.textContent=`${currentIndex+1} / ${images.length}`+(entries.length>1&&position>=0?` · 图组 ${position+1}/${entries.length}`:'');
+  }
   function hasOtherFloorMedia(){return floorMedia().some(x=>x.button!==button);}
   function navigateMedia(direction) {
     const next=currentIndex+direction;
@@ -54855,7 +54859,7 @@ function showImagePreview(img, button, autoFullscreen = false, boundaryIndex = n
     const target=adjacentChatMedia(floorMedia(),button,direction);
     if(!target)return;
     closeButton.onclick();
-    showImagePreview(target.img,target.button,isImmersive,direction<0?'last':'first');
+    showImagePreview(target.img,target.button,isImmersive,direction<0?'last':'first',chatGallery);
   }
   const prevButton = doc.createElement("button");
   prevButton.type = "button";
@@ -54929,7 +54933,7 @@ function showImagePreview(img, button, autoFullscreen = false, boundaryIndex = n
         revokeSlotBlobUrls(toRemove);
       }
       currentIndex = newIndex;
-      imageCounter.textContent = `${currentIndex + 1} / ${images.length}`;
+      updateMediaCounter();
       renderCurrentParams();
       const currentSlot = track.children[1];
       largeMedia = currentSlot.querySelector("img, video");
@@ -55857,7 +55861,7 @@ function showImagePreview(img, button, autoFullscreen = false, boundaryIndex = n
       return;
     }
     currentIndex = index;
-    imageCounter.textContent = `${currentIndex + 1} / ${images.length}`;
+    updateMediaCounter();
     renderCurrentParams();
     const showNav = images.length > 1 || hasOtherFloorMedia();
     prevButton.style.display = showNav ? "flex" : "none";
@@ -55889,6 +55893,25 @@ function showImagePreview(img, button, autoFullscreen = false, boundaryIndex = n
     syncPreviewSelectionToChat(index);
   }
   (async () => {
+    if(!chatGallery){
+      try{
+        const context=SillyTavern.getContext(),chat=context.chat;
+        const groups=chatMediaGroups(chat,{...getImageTags4(),normalize:normalizePromptTag,convert:convertNewXmlFormatToOld});
+        const cached=await cachedChatMediaGroups(groups,tag=>dbs.getMergedAndSortedImages(CryptoJS.MD5(tag).toString()));
+        if(!doc.body.contains(backdrop)||SillyTavern.getContext().chat!==chat)return;
+        const floor=chatMediaFloor(button),matches=cached.filter(g=>g.tag===currentTag&&(floor===null||g.floor===floor));
+        if(matches.length===1){
+          const active=matches[0],rendered=collectChatMedia(chatRoot);
+          chatGallery=cached.map(group=>{
+            if(group.id===active.id)return {...group,button,img};
+            const visible=rendered.find(entry=>entry.button.dataset.link===group.tag&&chatMediaFloor(entry.button)===group.floor);
+            if(visible)return {...group,...visible};
+            const proxy=doc.createElement('button');proxy.dataset.link=group.tag;
+            return {...group,button:proxy,img:doc.createElement('img')};
+          });
+        }
+      }catch(error){console.warn('[cosji] Chat gallery index unavailable; using rendered media',error?.name);}
+    }
     const md5 = CryptoJS.MD5(currentTag).toString();
     const merged = await dbs.getMergedAndSortedImages(md5);
     if (merged.images.length === 0) {

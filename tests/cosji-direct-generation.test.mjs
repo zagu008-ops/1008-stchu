@@ -20,7 +20,7 @@ const viewer=source.slice(source.indexOf('function showImagePreview('),source.in
 const navigation=viewer.slice(viewer.indexOf('  function navigateMedia('),viewer.indexOf('  const prevButton ='));
 const buttons=[{dataset:{link:'old'}},{dataset:{link:'current'}},{dataset:{link:'new'}}];
 let updated,opened,closed=0;
-const navigate=new Function('adjacentChatMedia','currentIndex','images','updateLargeImage','floorMedia','button','currentTag','closeButton','showImagePreview','isImmersive',navigation+';return navigateMedia;')(adjacentChatMedia,0,[null],i=>updated=i,()=>buttons.map(button=>({button,img:{}})),buttons[1],'current',{onclick(){closed++}},(...args)=>opened=args,false);
+const navigate=new Function('adjacentChatMedia','currentIndex','images','updateLargeImage','floorMedia','button','currentTag','closeButton','showImagePreview','isImmersive','chatGallery',navigation+';return navigateMedia;')(adjacentChatMedia,0,[null],i=>updated=i,()=>buttons.map(button=>({button,img:{}})),buttons[1],'current',{onclick(){closed++}},(...args)=>opened=args,false,null);
 navigate(-1);assert.equal(opened[1],buttons[0]);assert.equal(opened[3],'last');assert.equal(closed,1);
 navigate(1);assert.equal(opened[1],buttons[2]);assert.equal(opened[3],'first');assert.equal(updated,undefined);
 // A chat switch during generation must preserve the original message.
