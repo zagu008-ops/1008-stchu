@@ -1,3 +1,4 @@
+import {registerChatMedia,collectChatMedia,adjacentChatMedia} from './cosji-chat-gallery.mjs';
 import { saveSettings as cosjiSaveNativeSettings } from '../../../../script.js';
 import {readGenerationStream} from './cosji-generation-stream.mjs';
 import {mountDemandVocabulary} from './cosji-demand-vocabulary.mjs';
@@ -53007,6 +53008,7 @@ function createAndShowImage(container, imageUrl, alt, button, change, isVideo = 
   const doubleClickThreshold = 300;
   const longPressThreshold = 1200;
   div.appendChild(media);
+  registerChatMedia(button, media);
   let eventTarget = media;
   let playerHelper = null;
   if (isVideo) {
@@ -54845,28 +54847,19 @@ function showImagePreview(img, button, autoFullscreen = false, boundaryIndex = n
         user-select: none;
     `;
   const chatRoot=button.closest('.mes')?.closest('#chat, #chat-body, .chat-log') || savedChatEl;
-  function floorMedia() {
-    if (!chatRoot) return [];
-    return [...chatRoot.querySelectorAll('.st-chatu8-image-button[data-link]')].map(b=>{
-      const span=b.nextElementSibling;
-      const media=span?.querySelector('img, video');
-      return {button:b,img:media};
-    }).filter(x=>x.img && x.button.dataset.link);
-  }
-  function hasOtherFloorMedia(){return floorMedia().some(x=>x.button.dataset.link!==currentTag);}
+  function floorMedia() { return collectChatMedia(chatRoot); }
+  function hasOtherFloorMedia(){return floorMedia().some(x=>x.button!==button);}
   function navigateMedia(direction) {
     const next=currentIndex+direction;
     if(next>=0 && next<images.length){updateLargeImage(next);return;}
-    const candidates=floorMedia(), position=candidates.findIndex(x=>x.button===button);
-    for(let i=position+direction;position>=0 && i>=0 && i<candidates.length;i+=direction){
-      const target=candidates[i];
-      if(target.button.dataset.link===currentTag)continue;
-      closeButton.onclick();
-      showImagePreview(target.img,target.button,isImmersive,direction<0?'last':'first');
-      return;
-    }
+    const target=adjacentChatMedia(floorMedia(),button,direction);
+    if(!target)return;
+    closeButton.onclick();
+    showImagePreview(target.img,target.button,isImmersive,direction<0?'last':'first');
   }
-  const prevButton = doc.createElement("div");
+  const prevButton = doc.createElement("button");
+  prevButton.type = "button";
+  prevButton.setAttribute("aria-label", "上一张（支持跨楼层）");
   prevButton.className = "st-chatu8-preview-nav prev";
   prevButton.innerHTML = "&#10094;";
   prevButton.style.cssText = navButtonStyle + "left: 10px;";
@@ -54879,7 +54872,9 @@ function showImagePreview(img, button, autoFullscreen = false, boundaryIndex = n
   prevButton.onclick = () => {
     navigateMedia(-1);
   };
-  const nextButton = doc.createElement("div");
+  const nextButton = doc.createElement("button");
+  nextButton.type = "button";
+  nextButton.setAttribute("aria-label", "下一张（支持跨楼层）");
   nextButton.className = "st-chatu8-preview-nav next";
   nextButton.innerHTML = "&#10095;";
   nextButton.style.cssText = navButtonStyle + "right: 10px;";
@@ -54906,7 +54901,7 @@ function showImagePreview(img, button, autoFullscreen = false, boundaryIndex = n
   let horizontal = null;
   function navigate(dir) {
     if (animating) return;
-    if(currentIndex+dir<0 || currentIndex+dir>=images.length){navigateMedia(dir);return;}
+    if(currentIndex+dir<0 || currentIndex+dir>=images.length){track.style.transition=TRANSITION;track.style.transform=CENTER;navigateMedia(dir);return;}
     if(images.length<=1)return;
     animating = true;
     const n = images.length;
@@ -55034,7 +55029,7 @@ function showImagePreview(img, button, autoFullscreen = false, boundaryIndex = n
       panStartTy = zoomTy;
       return;
     }
-    if (images.length <= 1) return;
+    if (images.length <= 1 && !hasOtherFloorMedia()) return;
     dragging = true;
     horizontal = null;
     const t = e.touches[0];
