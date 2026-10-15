@@ -677,9 +677,12 @@
         font-size: 0.82em;
     }
 
-    /* 触屏设备：隐藏左右按钮，使用滑动手势切换（使用 !important 覆盖内联样式） */
+    /* Keep touch-sized navigation available; viewer state controls visibility. */
     .st-chatu8-preview-nav {
-        display: none !important;
+        min-width: 44px;
+        min-height: 44px;
+        padding: 0;
+        touch-action: manipulation;
     }
 
     /* 图片容器启用水平滑动手势的默认行为 */
