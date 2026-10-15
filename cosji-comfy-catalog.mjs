@@ -15,6 +15,27 @@ export async function fetchComfyInfo(address,{fetchImpl=fetch,headers}={}){
     if(!response.ok)throw new Error('酒馆读取 ComfyUI 模型列表失败 ('+response.status+')：'+await response.text());
     return response.json();
 }
+export async function fetchComfyLoras(address,{fetchImpl=fetch,headers}={}){
+    const url=normalizeComfyUrl(address);
+    let directError;
+    try{
+        const response=await fetchImpl(url+'/object_info/LoraLoader',{credentials:'omit',signal:AbortSignal.timeout(8000)});
+        if(!response.ok)throw new Error('HTTP '+response.status);
+        const info=await response.json();
+        const names=info.LoraLoader?.input?.required?.lora_name?.[0];
+        if(!Array.isArray(names))throw new Error('目标地址未提供 LoRA 模型列表');
+        return [...new Set(names.filter(n=>typeof n==='string'))];
+    }catch(error){directError=error;}
+    try{
+        const info=await fetchComfyInfo(url,{fetchImpl,headers});
+        const names=info.LoraLoader?.input?.required?.lora_name?.[0];
+        if(!Array.isArray(names))throw new Error('目标地址未提供 LoRA 模型列表');
+        return [...new Set(names.filter(n=>typeof n==='string'))];
+    }catch(error){
+        const message=e=>e.name==='TimeoutError'||e.name==='AbortError'?'请求超时':e.message;
+        throw new Error(`无法读取 ${url} 的 LoRA 列表。直连：${message(directError)}；酒馆转发：${message(error)}。请确认目标地址仍在线、IP 未变化，且允许当前酒馆跨域访问。`);
+    }
+}
 export function comfyCatalog(info){
     const names=(node,key)=>info[node]?.input?.required?.[key]?.[0]||[];
     return {

@@ -1,4 +1,4 @@
-import {fetchComfyInfo} from './cosji-comfy-catalog.mjs';
+import {fetchComfyLoras} from './cosji-comfy-catalog.mjs';
 import {splitLoras,joinLoras,normalizeComfyUrl} from './cosji-core.mjs';
 const fields=['roles','presetRoles','commonPrompts','roleCommonPrompts','commonLibraries','selectedRole','outfitOverride'];
 const selections=['yusheid_sd','yusheid_novelai','yusheid_comfyui','randomYushe'];
@@ -14,4 +14,4 @@ export function copyPageForAddress(page,url,names,mapping={}){const copy=structu
  for(const p of Object.values(copy.yushe)){p.cosjiComfyUrl=target;delete p.cosjiSourcePreset;}
  return copy;
 }
-export async function detectAddress(url){const info=await fetchComfyInfo(url),names=info.LoraLoader?.input?.required?.lora_name?.[0];if(!Array.isArray(names))throw new Error('目标地址未提供 LoRA 模型列表');return [...new Set(names.filter(n=>typeof n==='string'))];}
+export async function detectAddress(url){return fetchComfyLoras(url);}
