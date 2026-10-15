@@ -394,7 +394,7 @@ export function initCosji({settings, save, context, headers, refreshLLM, gallery
     });
     if(!loraNames.length&&loraCache)loraCache().then(cache=>{if(Array.isArray(cache?.loras)&&!loraNames.length){loraNames=cache.loras.filter(name=>typeof name==='string'&&name.trim());updateLoraSelect();}}).catch(()=>{});
     adaptAddressSelection();
-    if(settings.lastTab==='cosji')showEditor();
+    // Remember the selected tab without opening the settings window on startup.
     comfyInput?.addEventListener('change',async e=>{if(e.isTrusted){try{if(!await allowSwitch()||!await usePageAddress(e.target.value)){settings.comfyuiUrl=activePageAddress;e.target.value=activePageAddress;save();return;}e.target.value=settings.comfyuiUrl;render();renderQuick();refreshLoras();}catch(error){settings.comfyuiUrl=activePageAddress;e.target.value=activePageAddress;status=error.message;render();}}});
     refreshLoras();
 }
