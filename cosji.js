@@ -1,3 +1,4 @@
+import {outfitImageDialog} from './cosji-outfit-image.mjs';
 import {presetTestSnapshot,showPresetTest} from './cosji-preset-test.mjs';
 import {fetchComfyInfo} from './cosji-comfy-catalog.mjs';
 import {capturePage,applyPage} from './cosji-address-config.mjs';
@@ -199,11 +200,13 @@ export function initCosji({settings, save, context, headers, refreshLLM, gallery
           <div data-common-editor="role"></div><div class="cosji-row">${button('preset-generation-test','生图测试')}<span class="cosji-muted">合并当前角色、二级预设与公共配置</span></div>
           <div class="cosji-outfit-tabs" role="tablist" aria-label="服装预设范围"><button type="button" role="tab" aria-selected="${outfitTab==='role'}" data-cos-action="tab-role">角色服装</button><button type="button" role="tab" aria-selected="${outfitTab==='public'}" data-cos-action="tab-public">公共服装</button></div><p class="cosji-muted">${outfitTab==='public'?'所有角色共用这些服装；应用时合并当前角色的公共提示词和 LoRA。':'当前角色专用的服装预设。'}</p><label>服装（二级预设）</label><div class="cosji-row"><select id="cosji-outfit"><option value="">选择服装预设</option>${outfits}</select>${button('outfit-new','新建服装')}${button('outfit-copy','另存为')}${button('outfit-rename','改名')}${button('outfit-delete','删除')}${button('outfit-restore','恢复上次删除')}</div>
           <div class="cosji-row">${button('outfit-apply','应用当前服装')}${button('outfit-generation-test','生图测试')}<span class="cosji-muted">${settings.yushe[current]?.cosjiComfyUrl?'绑定地址：'+esc(settings.yushe[current].cosjiComfyUrl):'此预设提示词可跨地址复用'}</span></div><p class="cosji-muted">当前已应用：${esc(outfitName(settings.yusheid_comfyui)||'未选择')}</p>
+          ${outfitTab==='public'?button('outfit-image-import','导入图片 · 反推新服装'):''}
           <div class="cosji-cover-row">${previewMarkup(settings.yushe[current])}<div>${button('cover-select','从生成缓存选择预览图')}${button('cover-remove','移除预览图')}</div></div>
           <div class="cosji-outfit-strip">${visibleOutfits().map(name=>`<button type="button" class="cosji-outfit-card ${name===current?'selected':''}" data-outfit-key="${esc(name)}" title="${esc(outfitName(name))}">${previewMarkup(settings.yushe[name],true)}<span>${esc(outfitName(name))}</span></button>`).join('')}</div>
           ${settings.yushe[current]?.cosjiCivit ? `<p class="cosji-muted">来源：<a href="${esc(settings.yushe[current].cosjiCivit.sourceUrl)}" target="_blank" rel="noopener noreferrer">Civit 模型 ${esc(settings.yushe[current].cosjiCivit.modelId)}</a> · 版本 ${esc(settings.yushe[current].cosjiCivit.versionId)}</p>` : ''}
           <div class="cosji-civit-entry"><label>Civit 服装批量导入<input id="cosji-civit-url" type="url" value="${esc(catalog.lastCivitUrl)}" placeholder="https://civitai.red/models/1145224/…"></label>${button('civit-fetch','识别 Trigger Words')}${button('civit-download','导入角色 / 服装并下载 LoRA')}<p class="cosji-muted">识别名称后勾选批量新建到当前角色，已存在的服装自动跳过。地址自动记住上一次输入。</p></div>
           <div class="cosji-row"><label>归类到 <select id="cosji-move-role">${roles}</select></label>${button('outfit-move','移动分类')}${button('outfit-share',settings.yushe[current]?.cosjiPublicOutfit?'转为当前角色服装':'转为公共服装')}</div>
+          ${settings.yushe[current]?.cosjiOutfitDetails?`<details><summary>图片反推 · 中文服装细节</summary><p style="white-space:pre-wrap">${esc(settings.yushe[current].cosjiOutfitDetails)}</p></details>`:''}
           ${PROMPT_FIELDS.map((field,i) => `<details><summary>${['固定正面提示词','后置固定正面提示词','固定负面提示词'][i]}（点击展开）</summary><label><textarea data-cos-field="${field}" rows="4" ${!current?'disabled':''}>${esc(draft[field])}</textarea></label></details>`).join('')}
           <h4>LoRA</h4><p class="cosji-muted">每个 LoRA 可整项删除；模型权重和可选 CLIP 权重独立编辑。</p>
           <p id="cosji-lora-compatibility" class="cosji-muted"></p>
@@ -263,6 +266,18 @@ export function initCosji({settings, save, context, headers, refreshLLM, gallery
                 showPresetTest(presetTestSnapshot(settings,current||settings.yusheid_comfyui,role),generatePresetTest);return;
             }
 
+            if(action==='outfit-image-import'){
+                if(!await allowSwitch())return;
+                const targetCatalog=catalog,targetAddress=activePageAddress;
+                outfitImageDialog({analyze:analyzeCivit,onSave:({name,prompt,details,cover})=>{
+                    if(targetCatalog!==settings.cosji||targetAddress!==activePageAddress)throw Error('地址配置已切换，请关闭窗口后重新导入');
+                    const key='公共服装 · '+name;
+                    if(Object.hasOwn(settings.yushe,key))throw Error('已存在同名公共服装，请修改名称');
+                    settings.yushe[key]={fixedPrompt:prompt,fixedPrompt_end:'',negativePrompt:'',cosjiOutfitName:name,cosjiPublicOutfit:true,cosjiPreview:cover,cosjiOutfitDetails:details};
+                    catalog.presetRoles[key]='uncategorized';current=key;outfitTab='public';draft=splitLoras(settings.yushe[key]);dirty=false;
+                    save();status='已保存新的公共服装：'+name;render();renderQuick();
+                }});return;
+            }
             if(action==='tab-role'||action==='tab-public'){if(!await allowSwitch())return;outfitTab=action==='tab-public'?'public':'role';current=visibleOutfits()[0]||'';draft=splitLoras(settings.yushe[current]);dirty=false;render();return;}
             if(action==='outfit-share'){if(!current)throw new Error('请先选择服装');saveOutfit();const shared=!settings.yushe[current].cosjiPublicOutfit;settings.yushe[current].cosjiPublicOutfit=shared;catalog.presetRoles[current]=shared?'uncategorized':role;outfitTab=shared?'public':'role';status=shared?'已转为公共服装':'已转为当前角色服装';}
             if(action==='page-copy-address'){if(dirty)saveOutfit();const previous=settings.comfyuiUrl;if(!await usePageAddress(previous,true))return;const input=document.getElementById('comfyuiUrl');if(input)input.value=settings.comfyuiUrl;status='整页地址配置已保存并应用';render();renderQuick();refreshLoras();return;}

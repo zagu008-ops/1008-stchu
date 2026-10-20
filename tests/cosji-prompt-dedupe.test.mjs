@@ -1,0 +1,12 @@
+import assert from 'node:assert/strict';
+import {dedupePrompt} from '../cosji-prompt-dedupe.mjs';
+assert.equal(dedupePrompt('masterpiece, best quality, amazing quality, best quality, amazing quality, absurdres').prompt,'masterpiece, best quality, amazing quality, absurdres');
+assert.equal(dedupePrompt('<lora:folder\\style.safetensors:1>, smile, <lora:folder/style:0.8>').prompt,'<lora:folder/style:0.8>, smile');
+assert.equal(dedupePrompt('(red, blue:1.2), [red:blue:0.5], red\\, blue, (red, blue:1.2)').prompt,'(red, blue:1.2), [red:blue:0.5], red\\, blue');
+assert.equal(dedupePrompt('best quality, (best quality:1.2)').removed.length,0);
+assert.equal(dedupePrompt('smile, BREAK, smile, AND, smile').removed.length,0);
+assert.equal(dedupePrompt(', ,Text, text,\nwatermark,watermark').prompt,'Text, watermark');
+console.log('PASS: merged tag deduplication, LoRA precedence, weighted syntax and composition boundaries');
+const windowsTag=String.raw`<lora:folder\style.safetensors:1>`;
+assert.equal(dedupePrompt(windowsTag+', <lora:folder/style:0.5>').prompt,'<lora:folder/style:0.5>');
+assert.equal(dedupePrompt('<lora:Style:1>, <lora:style:1>').removed.length,0,'case-sensitive files remain distinct');

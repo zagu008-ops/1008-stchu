@@ -1,0 +1,15 @@
+import assert from 'node:assert/strict';
+import {nativeLoraWorkflow} from '../cosji-native-lora.mjs';
+const w={'4':{class_type:'CheckpointLoaderSimple',_meta:{cosjiNativeLoras:true},inputs:{ckpt_name:'model'}},p:{class_type:'CLIPTextEncode',inputs:{text:'landscape, <wlr:folder\\style:0.8:0.6:1>',clip:['4',1]}},n:{class_type:'CLIPTextEncode',inputs:{text:'text',clip:['4',1]}},sample:{class_type:'KSampler',inputs:{model:['4',0]}},decode:{class_type:'VAEDecode',inputs:{vae:['4',2]}}};
+const info={LoraLoader:{input:{required:{lora_name:[['folder\\style.safetensors']]}}}};
+const result=nativeLoraWorkflow(w,info);
+assert.equal(result.cosji_lora_0.inputs.strength_model,.8);assert.equal(result.cosji_lora_0.inputs.strength_clip,.6);
+assert.deepEqual(result.p.inputs.clip,['cosji_lora_0',1]);assert.deepEqual(result.sample.inputs.model,['cosji_lora_0',0]);
+assert.deepEqual(result.decode.inputs.vae,['4',2]);assert.ok(!result.p.inputs.text.includes('<wlr:'));assert.ok(w.p.inputs.text.includes('<wlr:'));
+const duplicate=structuredClone(w);duplicate.p.inputs.text+=' <lora:folder\\style.safetensors:0.7>';
+const deduplicated=nativeLoraWorkflow(duplicate,info);assert.equal(Object.values(deduplicated).filter(n=>n.class_type==='LoraLoader').length,1);assert.equal(deduplicated.cosji_lora_0.inputs.strength_model,.7);
+assert.throws(()=>nativeLoraWorkflow(w,{}),/缺少 LoRA/);
+assert.equal(nativeLoraWorkflow({x:{class_type:'WeiLinPromptUI'}},info).x.class_type,'WeiLinPromptUI');
+console.log('PASS: native LoRA weights, file resolution, graph rewiring and missing-file errors');
+const singleSlash=structuredClone(w);singleSlash.p.inputs.text=String.raw`<lora:folder\style:1>`;
+assert.equal(nativeLoraWorkflow(singleSlash,info).cosji_lora_0.inputs.lora_name,info.LoraLoader.input.required.lora_name[0][0]);

@@ -1,6 +1,9 @@
 const fs=require('node:fs'),assert=require('node:assert/strict');
 const text=fs.readFileSync('./index.js','utf8');
-const start=text.indexOf('  function replaceLoraTags(input, addClipSkip = false)'),end=text.indexOf('\n  if (extension_settings49[extensionName].worker.includes',start);
+const declaration=/^([ \t]*)function replaceLoraTags\(input, addClipSkip = false\)/m.exec(text);
+assert(declaration,'LoRA conversion helper must exist');
+const start=declaration.index,end=text.indexOf('\n'+declaration[1]+'if (extension_settings49[extensionName].worker.includes',start);
+assert(end>start,'LoRA helper boundary must be found');
 const convert=new Function('extension_settings49','extensionName','isSettingTrue',text.slice(start,end)+';return replaceLoraTags;')({test:{worker:'WeiLinPromptUI',weilin_lora_fix:'false'}},'test',v=>v===true||v==='true');
 const input='<lora:modelA:0.8>, apple, <lora:modelB:0.6:0.7>';
 const output=convert(input,true).replaceAll('<lora:','<wlr:');

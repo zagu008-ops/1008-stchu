@@ -1,0 +1,15 @@
+import assert from 'node:assert/strict';
+import {applyConnectionRepair} from '../cosji-connection-repair.mjs';
+const repair={url:'http://gpu:8188',invalidModels:['anima'],model:'illustrious',name:'native',workflow:{'4':{class_type:'CheckpointLoaderSimple',inputs:{ckpt_name:'%MODEL_NAME%'}}}};
+const info={CheckpointLoaderSimple:{input:{required:{ckpt_name:[['illustrious']]}}}};
+const old={comfyuiUrl:'http://gpu:8188/',MODEL_NAME:'anima',worker:'{"old":{}}',workerid:'old',yushe:{},cosji:{},comfyui_profile_id:'default',comfyui_profiles:{default:{MODEL_NAME:'anima'}}};
+const settings=structuredClone(old);
+assert.equal(await applyConnectionRepair(settings,repair,async()=>info),true);
+assert.equal(settings.MODEL_NAME,'illustrious');assert.equal(settings.comfyui_profiles.default.worker,settings.worker);
+assert.equal(settings.cosji.connectionRepairBackups[0].MODEL_NAME,'anima');
+assert.equal(await applyConnectionRepair(settings,repair,async()=>{throw Error('must not read')}),false);
+assert.equal(await applyConnectionRepair({...old,comfyuiUrl:'http://other'},repair,async()=>{throw Error('must not read')}),false);
+const withAnima={CheckpointLoaderSimple:{input:{required:{ckpt_name:[['anima','illustrious']]}}}};
+assert.equal(await applyConnectionRepair(structuredClone(old),repair,async()=>withAnima),false,'newly installed Anima is never overridden');
+assert.equal(await applyConnectionRepair(structuredClone(old),repair,async()=>({})),false);
+console.log('PASS: approved repair, profile persistence, stale-session recovery, address isolation and installed-model protection');

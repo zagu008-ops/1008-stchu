@@ -56,3 +56,46 @@
 .cosji-outfit-tabs button[aria-selected="true"]{background:#365374;border-color:#96b5df;font-weight:600}
 
 .cosji-civit-dialog label{display:block;margin:10px 0}.cosji-civit-dialog input[type=checkbox]{width:auto;margin-right:8px}.cosji-civit-dialog fieldset{border:1px solid #55708b;border-radius:8px;margin:12px 0;padding:12px}.cosji-civit-dialog pre{white-space:pre-wrap;overflow-wrap:anywhere}.cosji-civit-dialog [hidden]{display:none!important}
+
+/* History lightbox: image-led stage, separate prompt panel and persistent controls. */
+dialog.cosji-history-viewer { width:calc(100vw - 48px); max-width:1500px; height:calc(100dvh - 48px); max-height:none; margin:auto; padding:0; border:1px solid #ffffff20; border-radius:18px; background:#141420; color:#f4f4fa; box-shadow:0 24px 100px #0009; overflow:hidden; }
+dialog.cosji-history-viewer[open] { display:grid; grid-template-columns:minmax(0,1fr); grid-template-rows:minmax(0,1fr) auto; }
+dialog.cosji-history-viewer::backdrop { background:#080811dc; backdrop-filter:blur(12px); }
+.cosji-history-viewer .cosji-viewer-stage { position:relative; min-width:0; min-height:0; display:flex; align-items:center; justify-content:center; background:#191927; overflow:hidden; }
+.cosji-history-viewer .cosji-viewer-canvas { width:100%; height:100%; display:flex; align-items:center; justify-content:center; padding:10px; box-sizing:border-box; }
+.cosji-history-viewer .cosji-viewer-canvas img,.cosji-history-viewer .cosji-viewer-canvas video { display:block; width:100%; height:100%; max-width:100%; max-height:100%; object-fit:contain; border-radius:10px; }
+.cosji-history-viewer .cosji-viewer-counter { position:absolute; top:16px; left:50%; transform:translateX(-50%); z-index:2; padding:7px 16px; border:1px solid #ffffff20; border-radius:30px; background:#12121caa; backdrop-filter:blur(12px); font:500 13px/1.3 system-ui; color:#fff; pointer-events:none; }
+.cosji-history-viewer button { font-family:inherit; cursor:pointer; transition:background .15s,opacity .15s,transform .15s; }
+.cosji-history-viewer button:focus-visible { outline:2px solid #b7c4ff; outline-offset:3px; }
+.cosji-history-viewer button:disabled { opacity:.25; cursor:default; }
+.cosji-history-viewer .cosji-viewer-close { position:absolute; top:14px; right:14px; z-index:4; width:40px; height:40px; padding:0; border:1px solid #ffffff30; border-radius:50%; background:#161622b8; color:#fff; font-size:28px; line-height:1; backdrop-filter:blur(12px); }
+.cosji-history-viewer .cosji-viewer-arrow { position:absolute; top:50%; transform:translateY(-50%); z-index:3; width:44px; height:56px; padding:0; border:1px solid #ffffff20; border-radius:14px; background:#10101b8f; color:#fff; font-size:38px; line-height:1; backdrop-filter:blur(10px); }
+.cosji-history-viewer .cosji-viewer-prev { left:14px; }.cosji-history-viewer .cosji-viewer-next { right:14px; }
+.cosji-history-viewer .cosji-viewer-status { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); text-align:center; color:#cbcbd9; margin:0; padding:0 60px; width:100%; box-sizing:border-box; pointer-events:none; }
+.cosji-history-viewer .cosji-viewer-status:empty { display:none; }
+.cosji-history-viewer .cosji-viewer-dock { grid-column:1/-1; display:flex; flex-wrap:wrap; align-items:center; justify-content:center; gap:12px; padding:16px 24px; background:#1b1b2b; border-top:1px solid #ffffff10; }
+.cosji-history-viewer .cosji-viewer-mode-switch { display:flex; gap:3px; padding:4px; border:1px solid #ffffff16; border-radius:30px; background:#10101b; }
+.cosji-history-viewer .cosji-viewer-mode-switch button { padding:9px 18px; border:0; border-radius:24px; background:transparent; color:#aaaabb; font-size:13px; white-space:nowrap; }
+.cosji-history-viewer .cosji-viewer-mode-switch [aria-pressed="true"] { background:linear-gradient(115deg,#4c8be1,#7960ec); color:#fff; box-shadow:0 2px 10px #5464d333; }
+.cosji-history-viewer .cosji-viewer-action { padding:12px 22px; border:1px solid #a3b5ff55; border-radius:30px; color:#fff; background:linear-gradient(115deg,#4c88d8,#745ae5); font-size:13px; font-weight:600; white-space:nowrap; }
+.cosji-history-viewer .cosji-viewer-action:hover:not(:disabled),.cosji-history-viewer .cosji-viewer-close:hover,.cosji-history-viewer .cosji-viewer-arrow:hover:not(:disabled) { filter:brightness(1.18); }
+.cosji-history-viewer .cosji-viewer-hint { font-size:12px; color:#9292ab; white-space:nowrap; }
+.cosji-history-viewer .cosji-viewer-tags { padding:28px 24px; border-left:1px solid #ffffff12; overflow:auto; min-height:0; background:#202032; }
+.cosji-history-viewer .cosji-viewer-tags[hidden] { display:none!important; }
+.cosji-history-viewer .cosji-viewer-tags header { margin-bottom:22px; }.cosji-history-viewer .cosji-viewer-tags h3 { margin:0 0 6px; font-size:18px; }.cosji-history-viewer .cosji-viewer-tags header span,.cosji-history-viewer [data-label] { color:#9a9ab0; font-size:12px; }
+.cosji-history-viewer .cosji-viewer-tags h4 { color:#c5c2e5; margin:22px 0 10px; font-size:13px; }
+.cosji-history-viewer .cosji-viewer-tags pre { white-space:pre-wrap; overflow-wrap:anywhere; user-select:text; font:12px/1.8 ui-monospace,monospace; color:#d4d4e2; margin:0; padding:14px; border:1px solid #ffffff0c; border-radius:10px; background:#151522; }
+dialog.cosji-history-viewer[data-view-mode="tags"] { grid-template-columns:minmax(0,1fr) 340px; }
+dialog.cosji-history-viewer:fullscreen,dialog.cosji-history-viewer.cosji-viewer-immersive { width:100vw; height:100dvh; max-width:none; border:0; border-radius:0; }
+@media(max-width:760px) {
+ dialog.cosji-history-viewer { width:100vw; height:100dvh; max-width:none; border:0; border-radius:0; }
+ dialog.cosji-history-viewer[data-view-mode="tags"] { grid-template-columns:minmax(0,1fr); grid-template-rows:minmax(180px,1fr) minmax(0,30dvh) auto; }
+ .cosji-history-viewer .cosji-viewer-tags { border-left:0; border-top:1px solid #ffffff12; padding:18px; }
+ .cosji-history-viewer .cosji-viewer-tags header { margin-bottom:12px; }
+ .cosji-history-viewer .cosji-viewer-dock { padding:12px; gap:8px; }
+ .cosji-history-viewer .cosji-viewer-action { padding:11px 16px; }
+ .cosji-history-viewer .cosji-viewer-hint { display:none; }
+ .cosji-history-viewer .cosji-viewer-mode-switch button { padding:8px 14px; }
+ .cosji-history-viewer .cosji-viewer-arrow { width:36px; height:48px; }
+ .cosji-history-viewer .cosji-viewer-prev { left:8px; }.cosji-history-viewer .cosji-viewer-next { right:8px; }
+}

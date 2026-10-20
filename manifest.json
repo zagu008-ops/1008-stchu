@@ -6,7 +6,7 @@
   "js": "index.js",
   "css": "style.css",
   "author": "从前跟你一样",
-  "version": "3.1.4-cosji.2",
+  "version": "3.1.4-cosji.3",
   "homePage": "https://github.com/damoshen123/st-chatu8",
-  "updata": "新增 Civit 服装批量导入：识别版本和完整 Trigger Words，自动命名，勾选预览，来源及触发词去重。"
+  "updata": "生图历史大图查看与 Tag 模式、提示词去重、原生 LoRA、XL 两段采样与实际输出尺寸记录。"
 }

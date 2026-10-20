@@ -1,0 +1,16 @@
+import assert from 'node:assert/strict';
+import {historyTags,saveHistoryMedia,readHistoryMedia} from '../cosji-history-media.mjs';
+assert.deepEqual(historyTags({原始Tag:'original',生成Tag:'returned',promptTrace:[{values:{最终正向:'final <lora:style:1>',最终负向:'text'}}]}),{positive:'final <lora:style:1>',negative:'text'});
+assert.equal(historyTags({原始Tag:'original',生成Tag:'returned'}).positive,'returned');
+assert.equal(historyTags({原始Tag:'original'}).positive,'original');
+assert.equal(historyTags({}).positive,'');
+const records=new Map();
+globalThis.indexedDB={open(){const request={};queueMicrotask(()=>{request.result={transaction(){const tx={};tx.objectStore=()=>({put(blob,id){records.set(id,blob);queueMicrotask(()=>tx.oncomplete());return {};},get(id){const r={result:records.get(id)};queueMicrotask(()=>tx.oncomplete());return r;}});return tx;}};request.onsuccess();});return request;}};
+const blob=new Blob(['test'],{type:'image/png'});
+await saveHistoryMedia('task-one',blob);
+assert.equal(await (await readHistoryMedia('task-one')).text(),'test');
+await saveHistoryMedia('task-two','data:image/png;base64,aGVsbG8=');
+assert.equal(await (await readHistoryMedia('task-two')).text(),'hello');
+assert.equal(await (await readHistoryMedia('task-one')).text(),'test','same prompt requests keep separate images');
+assert.equal(await readHistoryMedia('missing'),undefined);
+console.log('PASS: prompt fallbacks, exact task media association and persistence');

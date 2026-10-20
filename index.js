@@ -1,3 +1,10 @@
+import {actualMediaParams as cosjiActualMediaParams,configureXLRuntime as cosjiConfigureXLRuntime,recordMediaDimensions as cosjiRecordMediaDimensions,mountXLRuntimeControls as cosjiMountXLRuntimeControls} from './cosji-xl-runtime.mjs';
+import {loadWorkflowPackage as cosjiLoadWorkflowPackage} from './cosji-workflow-package.mjs';
+import {dedupePrompt as cosjiDedupePrompt} from './cosji-prompt-dedupe.mjs';
+import {loadConnectionRepair as cosjiLoadConnectionRepair} from './cosji-connection-repair.mjs';
+import {nativeLoraWorkflow as cosjiNativeLoraWorkflow} from './cosji-native-lora.mjs';
+import {fetchComfyInfo as cosjiPreflightInfo} from './cosji-comfy-catalog.mjs';
+import {workflowProblems as cosjiWorkflowProblems} from './cosji-diagnostics.mjs';
 import {registerChatMedia,collectChatMedia,adjacentChatMedia,chatMediaGroups,cachedChatMediaGroups,chatMediaFloor} from './cosji-chat-gallery.mjs';
 import { saveSettings as cosjiSaveNativeSettings } from '../../../../script.js';
 import {readGenerationStream} from './cosji-generation-stream.mjs';
@@ -10640,6 +10647,9 @@ var init_genParams = __esm({
       charRefGroup: "\u89D2\u8272\u53C2\u8003\u7EC4",
       resolvedPrompt: "\u5B9E\u9645\u63D0\u793A\u8BCD",
       negativePrompt: "\u8D1F\u9762\u63D0\u793A\u8BCD",
+      baseWidth: "基础宽度（放大前）",
+      baseHeight: "基础高度（放大前）",
+      refinerSeed: "二次采样种子",
       width: "\u5BBD\u5EA6",
       height: "\u9AD8\u5EA6",
       seed: "\u79CD\u5B50",
@@ -47252,6 +47262,7 @@ async function replacepro(payload, json4) {
 }
 async function generateComfyUIImage({ prompt: link, width: Xwidth, height: Xheight, change, extraNegativePrompt, historyRequestId, diagnosticPreset, presetId, onProgress }) {
   historyBackend(historyRequestId,'ComfyUI 处理器已接收，等待本地并发队列');
+  if(await cosjiLoadConnectionRepair(extension_settings49[extensionName],address=>cosjiPreflightInfo(address,{headers:getRequestHeaders(window.token)})))await cosjiSaveNativeSettings();
   clearLog();
   let taskType = TaskType.COMFYUI_IMG;
   let taskTypeName = "ComfyUI \u666E\u901A\u751F\u56FE";
@@ -47286,283 +47297,295 @@ async function generateComfyUIImage({ prompt: link, width: Xwidth, height: Xheig
   lockAcquired = true;
   taskQueue.updateStatus(taskId, TaskStatus.RUNNING);
   const startTime = Date.now();
-  if (!isPluginToastDisabled()) {
-    toastr.info(`\u{1F3A8} \u5DF2\u53D1\u8D77 ${taskTypeName} \u8BF7\u6C42...`);
-  }
-  link = typeof link === "string" ? link : "";
-  change = typeof change === "string" ? change : "";
-  console.log("link", link);
-  let change_ = "";
-  if (change) {
-    change_ = change.replaceAll("{ComfyUI\u53C2\u8003\u751F\u89C6\u9891}", "").replaceAll("{\u53C2\u8003\u751F\u89C6\u9891}", "").replaceAll("{ComfyUI\u56FE\u751F\u89C6\u9891}", "").replaceAll("{\u56FE\u751F\u89C6\u9891}", "").replaceAll("{ComfyUI\u89C6\u9891}", "").replaceAll("{ComfyUI\u5C40\u90E8\u91CD\u7ED8}", "").replaceAll("{\u5C40\u90E8\u91CD\u7ED8}", "");
-  } else {
-    change_ = link;
-  }
-  const sizeRegex = /,?\s*(\d{2,4})x(\d{2,4})(?=[;\s]|$)/i;
-  if (typeof link === "string") {
-    const match = link.match(sizeRegex);
-    if (match) {
-      if (String(extension_settings49[extensionName].aiAutonomousResolution) !== "false") {
-        Xwidth = parseInt(match[1], 10);
-        Xheight = parseInt(match[2], 10);
-      }
-    }
-    link = link.replace(sizeRegex, "");
-  }
-  if (typeof change === "string") {
-    const match = change.match(sizeRegex);
-    if (match) {
-      if (String(extension_settings49[extensionName].aiAutonomousResolution) !== "false") {
-        Xwidth = parseInt(match[1], 10);
-        Xheight = parseInt(match[2], 10);
-      }
-    }
-    change = change.replace(sizeRegex, "");
-  }
-  link = processCharacterPrompt(link);
-  link = await stripChineseAnnotations(link);
-  change = processCharacterPrompt(change);
-  change = await stripChineseAnnotations(change);
-  addLog(`\u5F00\u59CB ComfyUI \u751F\u56FE\u6D41\u7A0B\u3002\u5BA2\u6237\u7AEF\u4E3A${extension_settings49[extensionName].client}`);
-  addLog(`\u8BF7\u6C42\u5DE5\u4F5C\u6D41id - ${extension_settings49[extensionName].workerid}`);
-  addLog(`\u8BF7\u6C42\u5C3A\u5BF8: \u5BBD\u5EA6 - ${Xwidth || "\u9ED8\u8BA4"}, \u9AD8\u5EA6 - ${Xheight || "\u9ED8\u8BA4"}`);
-  if (extension_settings49[extensionName].MODEL_NAME.trim() === "\u8FDE\u63A5\u540E\u9009\u62E9") {
-    addLog("\u8BF7\u586B\u5199ComfyUI\u6A21\u578B\u3002");
-    toastr.error("\u8BF7\u586B\u5199ComfyUI\u6A21\u578B\u3002");
-    taskQueue.completeTask(taskId, false);
-    activeComfyuiTasks.delete(taskId);
-    return;
-  }
-  const url = extension_settings49[extensionName].comfyuiUrl.trim();
-  const promptForGeneration = change && change.trim() !== "" ? change : link;
-  historyPromptTrace(historyRequestId,'原始生成 Tag',{Tag:promptForGeneration,使用手动修改:!!change?.trim()});
-  addLog(`\u7528\u4E8E\u751F\u6210\u7684Tag: ${promptForGeneration}`);
-  let Divide_roles = false;
-  if (promptForGeneration.includes("Scene Composition")) {
-    Divide_roles = true;
-  }
-  addLog(`\u662F\u5426\u542F\u7528\u5206\u89D2\u8272\u6A21\u5F0F (Divide_roles): ${Divide_roles}`);
-  let prompt_data = {};
-  let mainPrompt = "";
-  let other_prompt = "";
-  if (Divide_roles) {
-    addLog("\u5206\u89D2\u8272\u6A21\u5F0F: \u89E3\u6790\u5E26\u5750\u6807\u7684\u63D0\u793A\u8BCD\u5B57\u7B26\u4E32\u3002");
-    prompt_data = parsePromptStringWithCoordinates(promptForGeneration);
-    mainPrompt = prompt_data["Scene Composition"];
-    const charIds = getSortedCharacterIds(prompt_data);
-    for (const i of charIds) {
-      if (prompt_data[`Character ${i} Prompt`]) {
-        other_prompt = other_prompt + ", " + prompt_data[`Character ${i} Prompt`];
-      }
-    }
-  } else {
-    addLog("\u6807\u51C6\u6A21\u5F0F: \u4F7F\u7528\u8BF7\u6C42\u4E2D\u7684 prompt\u3002");
-    mainPrompt = deduplicateTags(promptForGeneration);
-  }
-  let { modifiedPrompt, insertions } = await prompt_replace(mainPrompt, other_prompt);
-  historyPromptTrace(historyRequestId,'提示词替换与删除',{
-    替换预设:extension_settings49[extensionName].prompt_replace_id,
-    配置规则:extension_settings49[extensionName].prompt_replace?.[extension_settings49[extensionName].prompt_replace_id]?.text||'',
-    替换前:mainPrompt,替换后:modifiedPrompt,插入内容:insertions
-  });
-  if (Divide_roles) {
-    const charIds = getSortedCharacterIds(prompt_data);
-    for (const i of charIds) {
-      if (prompt_data[`Character ${i} Prompt`]) {
-        modifiedPrompt = modifiedPrompt + " | " + prompt_replace_for_character(prompt_data[`Character ${i} Prompt`], (mainPrompt || "") + " " + (other_prompt || ""));
-      }
-    }
-  }
-  const _comfyui_yushe_id = presetId || getRandomYusheId("yusheid_comfyui");
-  if (!extension_settings49[extensionName].yushe || !extension_settings49[extensionName].yushe[_comfyui_yushe_id]) {
-    toastr.error("\u672A\u80FD\u627E\u5230\u6240\u9009\u7684\u56FA\u5B9A\u63D0\u793A\u8BCD\u9884\u8BBE\u3002\u8BF7\u524D\u5F80\u63D2\u4EF6\u8BBE\u7F6E\u4E2D\u65B0\u5EFA\u6216\u9009\u62E9\u4E00\u4E2A\u56FA\u5B9A\u63D0\u793A\u8BCD\u3002", "ComfyUI \u751F\u56FE\u9519\u8BEF");
-    taskQueue.completeTask(taskId, false);
-    activeComfyuiTasks.delete(taskId);
-    throw new Error("\u56FA\u5B9A\u63D0\u793A\u8BCD\u9884\u8BBE\u672A\u914D\u7F6E");
-  }
-  const outfitPreset=diagnosticPreset||extension_settings49[extensionName].yushe[_comfyui_yushe_id];
-  const outfitOverride=prepareOutfitSources({prompt:modifiedPrompt,preset:outfitPreset,settings:extension_settings49[extensionName],presetId:_comfyui_yushe_id,insertions,enabled:!diagnosticPreset&&extension_settings49[extensionName].cosji?.outfitOverride===true});
-  const _comfyui_preset=diagnosticPreset||outfitOverride.preset;
-  historyPromptTrace(historyRequestId,'预设服装覆盖 LLM 服装',{
-    开关:extension_settings49[extensionName].cosji?.outfitOverride===true,已执行:outfitOverride.applied,
-    移除的服装Tag:outfitOverride.removed,各来源移除:outfitOverride.removedBySource,覆盖前:modifiedPrompt,覆盖后:outfitOverride.prompt,说明:outfitOverride.reason||'过滤各来源服装，再合并所选服装预设；最终冲突仅提示，继续生成'
-  });
-  modifiedPrompt=outfitOverride.prompt;
-  historyPromptTrace(historyRequestId,'公共、角色与服装预设合并',{
-    服装预设:_comfyui_yushe_id,
-    合并前服装:Object.fromEntries(['fixedPrompt','fixedPrompt_end','negativePrompt'].map(key=>[key,(diagnosticPreset||extension_settings49[extensionName].yushe[_comfyui_yushe_id])[key]||''])),
-    合并后前置:_comfyui_preset.fixedPrompt,后置:_comfyui_preset.fixedPrompt_end,负向:_comfyui_preset.negativePrompt,
-    质量正向:extension_settings49[extensionName].AQT_comfyui,质量负向:extension_settings49[extensionName].UCP_comfyui,
-    替换后完整主体:modifiedPrompt
-  });
-  let prompt2 = await zhengmian(
-    _comfyui_preset.fixedPrompt,
-    modifiedPrompt,
-    _comfyui_preset.fixedPrompt_end,
-    diagnosticPreset?extension_settings49[extensionName].AQT_comfyui:outfitOverride.quality,
-    outfitOverride.insertions
-  );
-  const outfitConflicts=outfitOverride.applied?findOutfitConflicts(prompt2,outfitPreset):[];
-  historyPromptTrace(historyRequestId,'最终服装冲突检查',{覆盖已执行:outfitOverride.applied,疑似冲突Tag:outfitConflicts,处理:'提示冲突，但继续生成',说明:'按标签识别检查；LoRA 和模型效果仍可能影响服装，不保证图像完全一致'});
-  if(outfitConflicts.length)toastr.warning(`最终提示词含 ${outfitConflicts.length} 个疑似服装冲突，详情见任务历史；继续生成。`,'服装冲突提示');
-  historyPromptTrace(historyRequestId,'正向提示词组合完成',{正向:prompt2});
-  const promptBeforeLora=prompt2;
-  prompt2 = replaceLoraTags(prompt2);
-  function replaceLoraTags(input, addClipSkip = false) {
-    const regex = /<lora:([^:>]+):([^>]+)>/g;
-    return input.replace(regex, (match, filename, paramStr) => {
-      if (!addClipSkip) {
-        return `<lora:${filename}:${paramStr}>`;
-      }
-      const params = paramStr.split(":");
-      // WeiLinPromptUI's new-format regex can span adjacent old-format tags.
-      // Always emit all three numeric weights for this node to keep each tag bounded.
-      if (extension_settings49[extensionName].worker.includes("WeiLinPromptUI") || isSettingTrue(extension_settings49[extensionName].weilin_lora_fix)) {
-        const p1 = params[0] || "1";
-        const p2 = params[1] || "1";
-        const p3 = params[2] || "1";
-        console.log("\u5F00\u542F\u7684");
-        return `<lora:${filename}:${p1}:${p2}:${p3}>`;
-      } else {
-        const p1 = params[0] || "1";
-        const p2 = params[1] || "1";
-        return `<lora:${filename}:${p1}:${p2}>`;
-      }
-    });
-  }
-  if (extension_settings49[extensionName].worker.includes("WeiLin") && !extension_settings49[extensionName].worker.includes("WeiLinPromptUI")) {
-    prompt2 = replaceLoraTags(prompt2, true);
-    prompt2 = prompt2.replace(/<lora:([^:>]+)(\.safetensors)?:([^>]+)>/g, (match, filename, ext, weight) => {
-      if (!prompt2.includes(".safetensors")) {
-        return `<lora:${filename}.safetensors:${weight}> `;
-      }
-      return match;
-    });
-  }
-  if (extension_settings49[extensionName].worker.includes("WeiLinPromptUI")) {
-    prompt2 = replaceLoraTags(prompt2, true);
-    prompt2 = prompt2.replaceAll("<lora:", "<wlr:");
-    prompt2 = prompt2.replaceAll(".safetensors", "");
-  }
-  console.log("prompt", prompt2);
-  addLog(`\u6B63\u9762\u63D0\u793A\u8BCD: ${prompt2} `);
-  let negative_prompt = await fumian(_comfyui_preset.negativePrompt, extension_settings49[extensionName].UCP_comfyui);
-  if (!Divide_roles && window.collectedCharacterNegatives) {
-    const characterNegatives = window.collectedCharacterNegatives.trim();
-    if (characterNegatives) {
-      negative_prompt = negative_prompt ? `${negative_prompt}, ${characterNegatives} ` : characterNegatives;
-      addLog(`[\u89D2\u8272\u8D1F\u9762] \u6DFB\u52A0\u89D2\u8272\u8D1F\u9762\u63D0\u793A\u8BCD: ${characterNegatives} `);
-      console.log("[ComfyUI] \u5408\u5E76\u89D2\u8272\u8D1F\u9762\u63D0\u793A\u8BCD:", characterNegatives);
-    }
-  }
-  if (extraNegativePrompt && extraNegativePrompt.trim()) {
-    const trimmedExtra = extraNegativePrompt.trim();
-    negative_prompt = negative_prompt ? `${negative_prompt}, ${trimmedExtra} ` : trimmedExtra;
-    addLog(`[cos姬] \u6DFB\u52A0\u989D\u5916\u8D1F\u9762\u63D0\u793A\u8BCD: ${trimmedExtra} `);
-    console.log("[ComfyUI] \u5408\u5E76cos姬\u989D\u5916\u8D1F\u9762\u63D0\u793A\u8BCD:", trimmedExtra);
-  }
-  if (extension_settings49[extensionName].worker.includes("WeiLinPromptUI")) {
-    negative_prompt = replaceLoraTags(negative_prompt, true);
-    negative_prompt = negative_prompt.replaceAll("<lora:", "<wlr:");
-  } else {
-    negative_prompt = replaceLoraTags(negative_prompt);
-  }
-  addLog(`\u8D1F\u9762\u63D0\u793A\u8BCD: ${negative_prompt} `);
-  prompt2 = prompt2.replaceAll("\n", ",").replace(/,{2,}/g, ",");
-  negative_prompt = negative_prompt.replaceAll("\n", ",").replace(/,{2,}/g, ",");
-  historyPromptTrace(historyRequestId,'LoRA 转换及最终提交 Tag',{
-    LoRA转换前正向:promptBeforeLora,最终正向:prompt2,最终负向:negative_prompt,
-    LoRA格式:extension_settings49[extensionName].worker.includes('WeiLinPromptUI')?'wlr：模型权重 / CLIP 权重 / 触发词权重':'lora'
-  });
-  const normalizedModelName = normalizeBackslashPath(extension_settings49[extensionName].MODEL_NAME);
-  const resolvedSize=resolveComfySize(extension_settings49[extensionName],Xwidth,Xheight,!!diagnosticPreset);
-  historyBackend(historyRequestId,'尺寸已确定',{设置宽:extension_settings49[extensionName].comfyui_width,设置高:extension_settings49[extensionName].comfyui_height,宽:resolvedSize.width,高:resolvedSize.height,尺寸来源:resolvedSize.source});
-  let payload = {
-    "prompt": prompt2,
-    "negative_prompt": negative_prompt,
-    "steps": extension_settings49[extensionName].comfyui_steps,
-    "sampler_name": extension_settings49[extensionName].comfyuisamplerName,
-    "width": resolvedSize.width,
-    "height": resolvedSize.height,
-    "cfg_scale": extension_settings49[extensionName].cfg_comfyui,
-    "seed": extension_settings49[extensionName].comfyui_seed === 0 || extension_settings49[extensionName].comfyui_seed === "0" || extension_settings49[extensionName].comfyui_seed === "" || extension_settings49[extensionName].comfyui_seed === -1 || extension_settings49[extensionName].comfyui_seed === "-1" ? generateRandomSeed() : extension_settings49[extensionName].comfyui_seed,
-    "MODEL_NAME": normalizedModelName,
-    "c_quanzhong": extension_settings49[extensionName].c_quanzhong,
-    "c_idquanzhong": extension_settings49[extensionName].c_idquanzhong,
-    "c_xijie": extension_settings49[extensionName].c_xijie,
-    "c_fenwei": extension_settings49[extensionName].c_fenwei,
-    "comfyuicankaotupian": window.comfyuicankaotupian,
-    "ipa": extension_settings49[extensionName].ipa,
-    "scheduler": normalizeSettingString(extension_settings49[extensionName].comfyui_scheduler),
-    "vae": normalizeSettingString(extension_settings49[extensionName].comfyui_vae),
-    "clip": normalizeSettingString(extension_settings49[extensionName].comfyuiCLIPName),
-    // 局部重绘参数（如果有）
-    "inpaint_image": window.comfyuiInpaintImage || null,
-    "inpaint_mask": window.comfyuiInpaintMask || null,
-    "inpaint_denoise": extension_settings49[extensionName].inpaint_denoise || "0.75",
-    "inpaint_positive": window.comfyuiInpaintPositivePrompt || "",
-    "inpaint_negative": window.comfyuiInpaintNegativePrompt || ""
-  };
-  if (!payload.MODEL_NAME) {
-    throw new Error("ComfyUI \u6A21\u578B\u540D\u4E3A\u7A7A\u6216\u53EA\u5305\u542B\u7A7A\u767D\u5B57\u7B26\u3002");
-  }
-  historyBackend(historyRequestId,'正在准备模型与工作流',{模型:payload.MODEL_NAME,宽:payload.width,高:payload.height,步数:payload.steps,采样器:payload.sampler_name,实际服装预设:_comfyui_yushe_id});
-  const report = `
--- - \u751F\u56FE\u53C2\u6570\u62A5\u544A-- -
-\u6B63\u9762\u63D0\u793A\u8BCD: ${payload.prompt} 
-\u8D1F\u9762\u63D0\u793A\u8BCD: ${payload.negative_prompt} 
-\u6A21\u578B: ${payload.MODEL_NAME} 
-\u91C7\u6837\u5668: ${payload.sampler_name} 
-\u6B65\u6570: ${payload.steps} 
-CFG Scale: ${payload.cfg_scale} 
-\u79CD\u5B50: ${payload.seed} 
-\u5C3A\u5BF8: ${payload.width}x${payload.height} 
-VAE: ${payload.vae} 
-Scheduler: ${payload.scheduler} 
---------------------
-`;
-  addLog(report);
-  const _comfy_gen_params = buildGenParams("ComfyUI", {
-    model: payload.MODEL_NAME,
-    yushe: _comfyui_yushe_id,
-    yusheRandom: isSettingTrue(extension_settings49[extensionName].randomYushe),
-    promptReplaceId: extension_settings49[extensionName].prompt_replace_id,
-    resolvedPrompt: payload.prompt,
-    negativePrompt: payload.negative_prompt,
-    width: payload.width,
-    height: payload.height,
-    seed: payload.seed,
-    steps: payload.steps,
-    sampler: payload.sampler_name,
-    scheduler: payload.scheduler,
-    cfgScale: payload.cfg_scale
-  });
-  const clientId = "533ef3a3-39c0-4e39-9ced-37d290f371f8";
-  let workflowToUse = cosjiResolveWorkflow(extension_settings49[extensionName].worker,extension_settings49[extensionName].workers?.[extension_settings49[extensionName].workerid]);
-  if (change.includes("{ComfyUI\u5C40\u90E8\u91CD\u7ED8}") || change.includes("{\u5C40\u90E8\u91CD\u7ED8}")) {
-    workflowToUse = extension_settings49[extensionName].editWorker;
-  }
   try {
-    const workflowObj = JSON.parse(workflowToUse);
-    const skippedCount = Object.values(workflowObj).filter((n) => n && n._skip).length;
-    if (skippedCount > 0) {
-      addLog(`\u68C0\u6D4B\u5230 ${skippedCount} \u4E2A\u8DF3\u8FC7\u7684\u8282\u70B9\uFF0C\u6B63\u5728\u5904\u7406\u8FDE\u63A5\u91CD\u6620\u5C04...`);
-      const { getComfyuiCache: getComfyuiCache2 } = await Promise.resolve().then(() => (init_configDatabase(), configDatabase_exports));
-      const objectInfo = await getComfyuiCache2("objectinfo") || {};
-      const processedWorkflow = processSkippedNodes(workflowObj, objectInfo);
-      workflowToUse = JSON.stringify(processedWorkflow);
-      addLog(`\u8DF3\u8FC7\u8282\u70B9\u5904\u7406\u5B8C\u6210\uFF0C\u5DF2\u91CD\u6620\u5C04\u8FDE\u63A5${Object.keys(objectInfo).length > 0 ? "\uFF08\u542B\u7C7B\u578B\u5339\u914D\uFF09" : ""}`);
+    if (!isPluginToastDisabled()) {
+      toastr.info(`\u{1F3A8} \u5DF2\u53D1\u8D77 ${taskTypeName} \u8BF7\u6C42...`);
+    }
+    link = typeof link === "string" ? link : "";
+    change = typeof change === "string" ? change : "";
+    console.log("link", link);
+    let change_ = "";
+    if (change) {
+      change_ = change.replaceAll("{ComfyUI\u53C2\u8003\u751F\u89C6\u9891}", "").replaceAll("{\u53C2\u8003\u751F\u89C6\u9891}", "").replaceAll("{ComfyUI\u56FE\u751F\u89C6\u9891}", "").replaceAll("{\u56FE\u751F\u89C6\u9891}", "").replaceAll("{ComfyUI\u89C6\u9891}", "").replaceAll("{ComfyUI\u5C40\u90E8\u91CD\u7ED8}", "").replaceAll("{\u5C40\u90E8\u91CD\u7ED8}", "");
     } else {
-      workflowToUse = JSON.stringify(workflowObj);
+      change_ = link;
     }
-  } catch (e) {
-    throw new Error(`ComfyUI \u5DE5\u4F5C\u6D41 JSON \u65E0\u6548: ${e.message}`);
-  }
-  payload = await replacepro(payload, workflowToUse);
-  payload = JSON.stringify({ client_id: clientId, prompt: JSON.parse(payload) });
-  historyBackend(historyRequestId,'正在向 ComfyUI 提交工作流');
-  addLog(`\u53D1\u9001\u5230 ComfyUI \u7684\u6700\u7EC8 payload: ${payload} `);
-  try {
+    const sizeRegex = /,?\s*(\d{2,4})x(\d{2,4})(?=[;\s]|$)/i;
+    if (typeof link === "string") {
+      const match = link.match(sizeRegex);
+      if (match) {
+        if (String(extension_settings49[extensionName].aiAutonomousResolution) !== "false") {
+          Xwidth = parseInt(match[1], 10);
+          Xheight = parseInt(match[2], 10);
+        }
+      }
+      link = link.replace(sizeRegex, "");
+    }
+    if (typeof change === "string") {
+      const match = change.match(sizeRegex);
+      if (match) {
+        if (String(extension_settings49[extensionName].aiAutonomousResolution) !== "false") {
+          Xwidth = parseInt(match[1], 10);
+          Xheight = parseInt(match[2], 10);
+        }
+      }
+      change = change.replace(sizeRegex, "");
+    }
+    link = processCharacterPrompt(link);
+    link = await stripChineseAnnotations(link);
+    change = processCharacterPrompt(change);
+    change = await stripChineseAnnotations(change);
+    addLog(`\u5F00\u59CB ComfyUI \u751F\u56FE\u6D41\u7A0B\u3002\u5BA2\u6237\u7AEF\u4E3A${extension_settings49[extensionName].client}`);
+    addLog(`\u8BF7\u6C42\u5DE5\u4F5C\u6D41id - ${extension_settings49[extensionName].workerid}`);
+    addLog(`\u8BF7\u6C42\u5C3A\u5BF8: \u5BBD\u5EA6 - ${Xwidth || "\u9ED8\u8BA4"}, \u9AD8\u5EA6 - ${Xheight || "\u9ED8\u8BA4"}`);
+    if (extension_settings49[extensionName].MODEL_NAME.trim() === "\u8FDE\u63A5\u540E\u9009\u62E9") {
+      addLog("\u8BF7\u586B\u5199ComfyUI\u6A21\u578B\u3002");
+      toastr.error("\u8BF7\u586B\u5199ComfyUI\u6A21\u578B\u3002");
+      taskQueue.completeTask(taskId, false);
+      activeComfyuiTasks.delete(taskId);
+      return;
+    }
+    const url = extension_settings49[extensionName].comfyuiUrl.trim();
+    const promptForGeneration = change && change.trim() !== "" ? change : link;
+    historyPromptTrace(historyRequestId,'原始生成 Tag',{Tag:promptForGeneration,使用手动修改:!!change?.trim()});
+    addLog(`\u7528\u4E8E\u751F\u6210\u7684Tag: ${promptForGeneration}`);
+    let Divide_roles = false;
+    if (promptForGeneration.includes("Scene Composition")) {
+      Divide_roles = true;
+    }
+    addLog(`\u662F\u5426\u542F\u7528\u5206\u89D2\u8272\u6A21\u5F0F (Divide_roles): ${Divide_roles}`);
+    let prompt_data = {};
+    let mainPrompt = "";
+    let other_prompt = "";
+    if (Divide_roles) {
+      addLog("\u5206\u89D2\u8272\u6A21\u5F0F: \u89E3\u6790\u5E26\u5750\u6807\u7684\u63D0\u793A\u8BCD\u5B57\u7B26\u4E32\u3002");
+      prompt_data = parsePromptStringWithCoordinates(promptForGeneration);
+      mainPrompt = prompt_data["Scene Composition"];
+      const charIds = getSortedCharacterIds(prompt_data);
+      for (const i of charIds) {
+        if (prompt_data[`Character ${i} Prompt`]) {
+          other_prompt = other_prompt + ", " + prompt_data[`Character ${i} Prompt`];
+        }
+      }
+    } else {
+      addLog("\u6807\u51C6\u6A21\u5F0F: \u4F7F\u7528\u8BF7\u6C42\u4E2D\u7684 prompt\u3002");
+      mainPrompt = deduplicateTags(promptForGeneration);
+    }
+    let { modifiedPrompt, insertions } = await prompt_replace(mainPrompt, other_prompt);
+    historyPromptTrace(historyRequestId,'提示词替换与删除',{
+      替换预设:extension_settings49[extensionName].prompt_replace_id,
+      配置规则:extension_settings49[extensionName].prompt_replace?.[extension_settings49[extensionName].prompt_replace_id]?.text||'',
+      替换前:mainPrompt,替换后:modifiedPrompt,插入内容:insertions
+    });
+    if (Divide_roles) {
+      const charIds = getSortedCharacterIds(prompt_data);
+      for (const i of charIds) {
+        if (prompt_data[`Character ${i} Prompt`]) {
+          modifiedPrompt = modifiedPrompt + " | " + prompt_replace_for_character(prompt_data[`Character ${i} Prompt`], (mainPrompt || "") + " " + (other_prompt || ""));
+        }
+      }
+    }
+    const _comfyui_yushe_id = presetId || getRandomYusheId("yusheid_comfyui");
+    if (!extension_settings49[extensionName].yushe || !extension_settings49[extensionName].yushe[_comfyui_yushe_id]) {
+      toastr.error("\u672A\u80FD\u627E\u5230\u6240\u9009\u7684\u56FA\u5B9A\u63D0\u793A\u8BCD\u9884\u8BBE\u3002\u8BF7\u524D\u5F80\u63D2\u4EF6\u8BBE\u7F6E\u4E2D\u65B0\u5EFA\u6216\u9009\u62E9\u4E00\u4E2A\u56FA\u5B9A\u63D0\u793A\u8BCD\u3002", "ComfyUI \u751F\u56FE\u9519\u8BEF");
+      taskQueue.completeTask(taskId, false);
+      activeComfyuiTasks.delete(taskId);
+      throw new Error("\u56FA\u5B9A\u63D0\u793A\u8BCD\u9884\u8BBE\u672A\u914D\u7F6E");
+    }
+    const outfitPreset=diagnosticPreset||extension_settings49[extensionName].yushe[_comfyui_yushe_id];
+    const outfitOverride=prepareOutfitSources({prompt:modifiedPrompt,preset:outfitPreset,settings:extension_settings49[extensionName],presetId:_comfyui_yushe_id,insertions,enabled:!diagnosticPreset&&extension_settings49[extensionName].cosji?.outfitOverride===true});
+    const _comfyui_preset=diagnosticPreset||outfitOverride.preset;
+    historyPromptTrace(historyRequestId,'预设服装覆盖 LLM 服装',{
+      开关:extension_settings49[extensionName].cosji?.outfitOverride===true,已执行:outfitOverride.applied,
+      移除的服装Tag:outfitOverride.removed,各来源移除:outfitOverride.removedBySource,覆盖前:modifiedPrompt,覆盖后:outfitOverride.prompt,说明:outfitOverride.reason||'过滤各来源服装，再合并所选服装预设；最终冲突仅提示，继续生成'
+    });
+    modifiedPrompt=outfitOverride.prompt;
+    historyPromptTrace(historyRequestId,'公共、角色与服装预设合并',{
+      服装预设:_comfyui_yushe_id,
+      合并前服装:Object.fromEntries(['fixedPrompt','fixedPrompt_end','negativePrompt'].map(key=>[key,(diagnosticPreset||extension_settings49[extensionName].yushe[_comfyui_yushe_id])[key]||''])),
+      合并后前置:_comfyui_preset.fixedPrompt,后置:_comfyui_preset.fixedPrompt_end,负向:_comfyui_preset.negativePrompt,
+      质量正向:extension_settings49[extensionName].AQT_comfyui,质量负向:extension_settings49[extensionName].UCP_comfyui,
+      替换后完整主体:modifiedPrompt
+    });
+    let prompt2 = await zhengmian(
+      _comfyui_preset.fixedPrompt,
+      modifiedPrompt,
+      _comfyui_preset.fixedPrompt_end,
+      diagnosticPreset?extension_settings49[extensionName].AQT_comfyui:outfitOverride.quality,
+      outfitOverride.insertions
+    );
+    const outfitConflicts=outfitOverride.applied?findOutfitConflicts(prompt2,outfitPreset):[];
+    historyPromptTrace(historyRequestId,'最终服装冲突检查',{覆盖已执行:outfitOverride.applied,疑似冲突Tag:outfitConflicts,处理:'提示冲突，但继续生成',说明:'按标签识别检查；LoRA 和模型效果仍可能影响服装，不保证图像完全一致'});
+    if(outfitConflicts.length)toastr.warning(`最终提示词含 ${outfitConflicts.length} 个疑似服装冲突，详情见任务历史；继续生成。`,'服装冲突提示');
+    historyPromptTrace(historyRequestId,'正向提示词组合完成',{正向:prompt2});
+    const promptBeforeLora=prompt2;
+    prompt2 = replaceLoraTags(prompt2);
+    function replaceLoraTags(input, addClipSkip = false) {
+      const regex = /<lora:([^:>]+):([^>]+)>/g;
+      return input.replace(regex, (match, filename, paramStr) => {
+        if (!addClipSkip) {
+          return `<lora:${filename}:${paramStr}>`;
+        }
+        const params = paramStr.split(":");
+        // WeiLinPromptUI's new-format regex can span adjacent old-format tags.
+        // Always emit all three numeric weights for this node to keep each tag bounded.
+        if (extension_settings49[extensionName].worker.includes("WeiLinPromptUI") || isSettingTrue(extension_settings49[extensionName].weilin_lora_fix)) {
+          const p1 = params[0] || "1";
+          const p2 = params[1] || "1";
+          const p3 = params[2] || "1";
+          console.log("\u5F00\u542F\u7684");
+          return `<lora:${filename}:${p1}:${p2}:${p3}>`;
+        } else {
+          const p1 = params[0] || "1";
+          const p2 = params[1] || "1";
+          return `<lora:${filename}:${p1}:${p2}>`;
+        }
+      });
+    }
+    if (extension_settings49[extensionName].worker.includes("WeiLin") && !extension_settings49[extensionName].worker.includes("WeiLinPromptUI")) {
+      prompt2 = replaceLoraTags(prompt2, true);
+      prompt2 = prompt2.replace(/<lora:([^:>]+)(\.safetensors)?:([^>]+)>/g, (match, filename, ext, weight) => {
+        if (!prompt2.includes(".safetensors")) {
+          return `<lora:${filename}.safetensors:${weight}> `;
+        }
+        return match;
+      });
+    }
+    if (extension_settings49[extensionName].worker.includes("WeiLinPromptUI")) {
+      prompt2 = replaceLoraTags(prompt2, true);
+      prompt2 = prompt2.replaceAll("<lora:", "<wlr:");
+      prompt2 = prompt2.replaceAll(".safetensors", "");
+    }
+    console.log("prompt", prompt2);
+    addLog(`\u6B63\u9762\u63D0\u793A\u8BCD: ${prompt2} `);
+    let negative_prompt = await fumian(_comfyui_preset.negativePrompt, extension_settings49[extensionName].UCP_comfyui);
+    if (!Divide_roles && window.collectedCharacterNegatives) {
+      const characterNegatives = window.collectedCharacterNegatives.trim();
+      if (characterNegatives) {
+        negative_prompt = negative_prompt ? `${negative_prompt}, ${characterNegatives} ` : characterNegatives;
+        addLog(`[\u89D2\u8272\u8D1F\u9762] \u6DFB\u52A0\u89D2\u8272\u8D1F\u9762\u63D0\u793A\u8BCD: ${characterNegatives} `);
+        console.log("[ComfyUI] \u5408\u5E76\u89D2\u8272\u8D1F\u9762\u63D0\u793A\u8BCD:", characterNegatives);
+      }
+    }
+    if (extraNegativePrompt && extraNegativePrompt.trim()) {
+      const trimmedExtra = extraNegativePrompt.trim();
+      negative_prompt = negative_prompt ? `${negative_prompt}, ${trimmedExtra} ` : trimmedExtra;
+      addLog(`[cos姬] \u6DFB\u52A0\u989D\u5916\u8D1F\u9762\u63D0\u793A\u8BCD: ${trimmedExtra} `);
+      console.log("[ComfyUI] \u5408\u5E76cos姬\u989D\u5916\u8D1F\u9762\u63D0\u793A\u8BCD:", trimmedExtra);
+    }
+    if (extension_settings49[extensionName].worker.includes("WeiLinPromptUI")) {
+      negative_prompt = replaceLoraTags(negative_prompt, true);
+      negative_prompt = negative_prompt.replaceAll("<lora:", "<wlr:");
+    } else {
+      negative_prompt = replaceLoraTags(negative_prompt);
+    }
+    addLog(`\u8D1F\u9762\u63D0\u793A\u8BCD: ${negative_prompt} `);
+    prompt2 = prompt2.replaceAll("\n", ",").replace(/,{2,}/g, ",");
+    negative_prompt = negative_prompt.replaceAll("\n", ",").replace(/,{2,}/g, ",");
+    const cosjiPositiveUnique=cosjiDedupePrompt(prompt2),cosjiNegativeUnique=cosjiDedupePrompt(negative_prompt);
+    prompt2=cosjiPositiveUnique.prompt;negative_prompt=cosjiNegativeUnique.prompt;
+    historyPromptTrace(historyRequestId,'最终 Tag 去重',{移除的正向重复:cosjiPositiveUnique.removed,移除的负向重复:cosjiNegativeUnique.removed});
+    historyPromptTrace(historyRequestId,'LoRA 转换及最终提交 Tag',{
+      LoRA转换前正向:promptBeforeLora,最终正向:prompt2,最终负向:negative_prompt,
+      LoRA格式:extension_settings49[extensionName].worker.includes('WeiLinPromptUI')?'wlr：模型权重 / CLIP 权重 / 触发词权重':'lora'
+    });
+    const normalizedModelName = normalizeBackslashPath(extension_settings49[extensionName].MODEL_NAME);
+    const resolvedSize=resolveComfySize(extension_settings49[extensionName],Xwidth,Xheight,!!diagnosticPreset);
+    historyBackend(historyRequestId,'尺寸已确定',{设置宽:extension_settings49[extensionName].comfyui_width,设置高:extension_settings49[extensionName].comfyui_height,宽:resolvedSize.width,高:resolvedSize.height,尺寸来源:resolvedSize.source});
+    let payload = {
+      "prompt": prompt2,
+      "negative_prompt": negative_prompt,
+      "steps": extension_settings49[extensionName].comfyui_steps,
+      "sampler_name": extension_settings49[extensionName].comfyuisamplerName,
+      "width": resolvedSize.width,
+      "height": resolvedSize.height,
+      "cfg_scale": extension_settings49[extensionName].cfg_comfyui,
+      "seed": extension_settings49[extensionName].comfyui_seed === 0 || extension_settings49[extensionName].comfyui_seed === "0" || extension_settings49[extensionName].comfyui_seed === "" || extension_settings49[extensionName].comfyui_seed === -1 || extension_settings49[extensionName].comfyui_seed === "-1" ? generateRandomSeed() : extension_settings49[extensionName].comfyui_seed,
+      "MODEL_NAME": normalizedModelName,
+      "c_quanzhong": extension_settings49[extensionName].c_quanzhong,
+      "c_idquanzhong": extension_settings49[extensionName].c_idquanzhong,
+      "c_xijie": extension_settings49[extensionName].c_xijie,
+      "c_fenwei": extension_settings49[extensionName].c_fenwei,
+      "comfyuicankaotupian": window.comfyuicankaotupian,
+      "ipa": extension_settings49[extensionName].ipa,
+      "scheduler": normalizeSettingString(extension_settings49[extensionName].comfyui_scheduler),
+      "vae": normalizeSettingString(extension_settings49[extensionName].comfyui_vae),
+      "clip": normalizeSettingString(extension_settings49[extensionName].comfyuiCLIPName),
+      // 局部重绘参数（如果有）
+      "inpaint_image": window.comfyuiInpaintImage || null,
+      "inpaint_mask": window.comfyuiInpaintMask || null,
+      "inpaint_denoise": extension_settings49[extensionName].inpaint_denoise || "0.75",
+      "inpaint_positive": window.comfyuiInpaintPositivePrompt || "",
+      "inpaint_negative": window.comfyuiInpaintNegativePrompt || ""
+    };
+    if (!payload.MODEL_NAME) {
+      throw new Error("ComfyUI \u6A21\u578B\u540D\u4E3A\u7A7A\u6216\u53EA\u5305\u542B\u7A7A\u767D\u5B57\u7B26\u3002");
+    }
+    historyBackend(historyRequestId,'正在准备模型与工作流',{模型:payload.MODEL_NAME,宽:payload.width,高:payload.height,步数:payload.steps,采样器:payload.sampler_name,实际服装预设:_comfyui_yushe_id});
+    const report = `
+  -- - \u751F\u56FE\u53C2\u6570\u62A5\u544A-- -
+  \u6B63\u9762\u63D0\u793A\u8BCD: ${payload.prompt}
+  \u8D1F\u9762\u63D0\u793A\u8BCD: ${payload.negative_prompt}
+  \u6A21\u578B: ${payload.MODEL_NAME}
+  \u91C7\u6837\u5668: ${payload.sampler_name}
+  \u6B65\u6570: ${payload.steps}
+  CFG Scale: ${payload.cfg_scale}
+  \u79CD\u5B50: ${payload.seed}
+  \u5C3A\u5BF8: ${payload.width}x${payload.height}
+  VAE: ${payload.vae}
+  Scheduler: ${payload.scheduler}
+  --------------------
+  `;
+    addLog(report);
+    const _comfy_gen_params = buildGenParams("ComfyUI", {
+      model: payload.MODEL_NAME,
+      yushe: _comfyui_yushe_id,
+      yusheRandom: isSettingTrue(extension_settings49[extensionName].randomYushe),
+      promptReplaceId: extension_settings49[extensionName].prompt_replace_id,
+      resolvedPrompt: payload.prompt,
+      negativePrompt: payload.negative_prompt,
+      width: payload.width,
+      height: payload.height,
+      seed: payload.seed,
+      steps: payload.steps,
+      sampler: payload.sampler_name,
+      scheduler: payload.scheduler,
+      cfgScale: payload.cfg_scale
+    });
+    const clientId = "533ef3a3-39c0-4e39-9ced-37d290f371f8";
+    let workflowToUse = cosjiResolveWorkflow(extension_settings49[extensionName].worker,extension_settings49[extensionName].workers?.[extension_settings49[extensionName].workerid]);
+    if (change.includes("{ComfyUI\u5C40\u90E8\u91CD\u7ED8}") || change.includes("{\u5C40\u90E8\u91CD\u7ED8}")) {
+      workflowToUse = extension_settings49[extensionName].editWorker;
+    }
+    try {
+      const workflowObj = JSON.parse(workflowToUse);
+      const skippedCount = Object.values(workflowObj).filter((n) => n && n._skip).length;
+      if (skippedCount > 0) {
+        addLog(`\u68C0\u6D4B\u5230 ${skippedCount} \u4E2A\u8DF3\u8FC7\u7684\u8282\u70B9\uFF0C\u6B63\u5728\u5904\u7406\u8FDE\u63A5\u91CD\u6620\u5C04...`);
+        const { getComfyuiCache: getComfyuiCache2 } = await Promise.resolve().then(() => (init_configDatabase(), configDatabase_exports));
+        const objectInfo = await getComfyuiCache2("objectinfo") || {};
+        const processedWorkflow = processSkippedNodes(workflowObj, objectInfo);
+        workflowToUse = JSON.stringify(processedWorkflow);
+        addLog(`\u8DF3\u8FC7\u8282\u70B9\u5904\u7406\u5B8C\u6210\uFF0C\u5DF2\u91CD\u6620\u5C04\u8FDE\u63A5${Object.keys(objectInfo).length > 0 ? "\uFF08\u542B\u7C7B\u578B\u5339\u914D\uFF09" : ""}`);
+      } else {
+        workflowToUse = JSON.stringify(workflowObj);
+      }
+    } catch (e) {
+      throw new Error(`ComfyUI \u5DE5\u4F5C\u6D41 JSON \u65E0\u6548: ${e.message}`);
+    }
+    payload = await replacepro(payload, workflowToUse);
+    let cosjiResolvedWorkflow=JSON.parse(payload);
+    historyBackend(historyRequestId,'正在核对当前服务器的工作流模型与节点');
+    const cosjiServerInfo=await cosjiPreflightInfo(url,{headers:getRequestHeaders(window.token)});
+    cosjiResolvedWorkflow=cosjiNativeLoraWorkflow(cosjiResolvedWorkflow,cosjiServerInfo);
+    cosjiResolvedWorkflow=cosjiConfigureXLRuntime(cosjiResolvedWorkflow,extension_settings49[extensionName].cosji?.refinerSeed);
+    _comfy_gen_params.refinerSeed=Object.values(cosjiResolvedWorkflow).find(node=>node.class_type==='KSamplerAdvanced')?.inputs.noise_seed;
+    historyBackend(historyRequestId,'正在向 ComfyUI 提交工作流',{首轮种子:_comfy_gen_params.seed,二次种子:_comfy_gen_params.refinerSeed});
+    const cosjiInvalidWorkflow=cosjiWorkflowProblems(cosjiResolvedWorkflow,cosjiServerInfo);
+    if(cosjiInvalidWorkflow.length)throw new Error('ComfyUI 工作流与当前服务器不匹配：\n'+cosjiInvalidWorkflow.join('\n')+'\n请切换匹配的工作流或 ComfyUI 地址。');
+    payload = JSON.stringify({ client_id: clientId, prompt: cosjiResolvedWorkflow });
+    historyBackend(historyRequestId,'正在向 ComfyUI 提交工作流');
+    addLog(`\u53D1\u9001\u5230 ComfyUI \u7684\u6700\u7EC8 payload: ${payload} `);
     if (!taskQueue.isTaskInQueue(taskId)) {
       addLog("\u6B63\u5F0F\u8BF7\u6C42\u524D\u68C0\u6D4B\u5230\u4EFB\u52A1\u5DF2\u88AB\u53D6\u6D88\u3002");
       throw new Error("\u4EFB\u52A1\u5DF2\u53D6\u6D88");
@@ -47631,6 +47654,7 @@ Scheduler: ${payload.scheduler}
       if (isVideo) {
         finalFormat = `video/${mimeType}`;
       }
+      if(!isVideo){try{await cosjiRecordMediaDimensions(_comfy_gen_params,imageUrl);historyBackend(historyRequestId,'图片已返回，已核对实际分辨率',{基础宽:_comfy_gen_params.baseWidth,基础高:_comfy_gen_params.baseHeight,输出宽:_comfy_gen_params.width,输出高:_comfy_gen_params.height});}catch(error){console.warn('图片尺寸读取失败',error);}}
       return { image: imageUrl, change: change_ || "", isVideo, format: finalFormat, genParams: _comfy_gen_params };
     } else {
       const urlObj = new URL(url + "/prompt");
@@ -47832,6 +47856,7 @@ Scheduler: ${payload.scheduler}
       if (!isPluginToastDisabled()) {
         toastr.success(`\u2705 ${taskTypeName}\u5B8C\u6210\uFF0C\u8017\u65F6 ${duration} \u79D2`);
       }
+      if(!isVideo){try{await cosjiRecordMediaDimensions(_comfy_gen_params,imageUrl);historyBackend(historyRequestId,'图片已返回，已核对实际分辨率',{基础宽:_comfy_gen_params.baseWidth,基础高:_comfy_gen_params.baseHeight,输出宽:_comfy_gen_params.width,输出高:_comfy_gen_params.height});}catch(error){console.warn('图片尺寸读取失败',error);}}
       return { image: imageUrl, change: change_ || "", isVideo, format: mediaFormat, genParams: _comfy_gen_params };
     }
   } catch (error) {
@@ -55464,7 +55489,7 @@ function showImagePreview(img, button, autoFullscreen = false, boundaryIndex = n
   function renderCurrentParams() {
     if (!paramsPanel.isVisible()) return;
     const info = mediaInfos[currentIndex] || {};
-    paramsPanel.render(info.genParams, currentTag, info.date);
+    paramsPanel.render(cosjiActualMediaParams(info.genParams,imageContainer.querySelector('img,video')), currentTag, info.date);
   }
   deleteButton.onclick = async () => {
     if (!window.top.confirm("\u786E\u5B9A\u8981\u5220\u9664\u8FD9\u5F20\u56FE\u7247\u5417\uFF1F")) {
@@ -90015,7 +90040,7 @@ function showCacheImagePreview(initialUUID) {
   function renderCurrentParams() {
     if (!paramsPanel.isVisible()) return;
     const info = allCachedImages[currentIndex] || {};
-    paramsPanel.render(info.genParams, void 0, info.timestamp);
+    paramsPanel.render(cosjiActualMediaParams(info.genParams,imageContainer.querySelector('img,video')), void 0, info.timestamp);
   }
   const paramsButton = doc.createElement("button");
   paramsButton.textContent = "\u67E5\u770B\u751F\u6210\u53C2\u6570";
@@ -113204,7 +113229,15 @@ async function main() {
   ensureInjectionTemplatesInit();
   installGlobalErrorHandler();
   initImageGenStatsListener();
+  try {
+    if(await cosjiLoadConnectionRepair(mergedSettings,address=>cosjiPreflightInfo(address,{headers:getRequestHeaders(window.token)}))){
+      await cosjiSaveNativeSettings();
+      toastr.info('已恢复此服务器验证通过的 Illustrious 配置；旧配置已保留备份。');
+    }
+  }catch(error){console.warn('ComfyUI 配置恢复未完成',error);}
+  try{if(await cosjiLoadWorkflowPackage(mergedSettings)){await cosjiSaveNativeSettings();toastr.info('已安装并选中工作流：'+mergedSettings.workerid);}}catch(error){console.warn('酒馆工作流安装未完成',error);}
   await initUI({ check_update });
+  cosjiMountXLRuntimeControls(mergedSettings,saveSettingsDebounced72);
   initHistory(extension_settings116[extensionName],saveSettingsDebounced72,{cache:saveFullComfyuiCache,test:runCosjiGenerationTest});
   initCosji({
     extensionName,
@@ -113235,7 +113268,7 @@ async function main() {
   setTimeout(addNewElement, 2e3);
   setInterval(chenk, 4e3);
   window.chatu8UpdateAvailable = false;
-  window.chatu8LocalVersion = '3.1.4-cosji.2';
+  window.chatu8LocalVersion = '3.1.4-cosji.3';
 }
 function addNewElement() {
   const targetElement = document.querySelector("#option_toggle_AN");

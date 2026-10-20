@@ -1,13 +1,14 @@
 import {createHistory,safeUrl,safeError,historyPage} from './cosji-history.mjs';
+import {saveHistoryMedia,readHistoryMedia,historyTags,pruneHistoryMedia} from './cosji-history-media.mjs';
 import {inspectConfiguration} from './cosji-diagnostics.mjs';
 import {eventSource} from '../../../../script.js';
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 function renderInfo(info){
-    const {promptTrace=[],...configuration}=info;
+    const {promptTrace=[],图片缓存,...configuration}=info;
     const block=(label,value)=>`<h4>${esc(label)}</h4><pre style="white-space:pre-wrap;overflow-wrap:anywhere;user-select:text">${esc(typeof value==='string'?value:JSON.stringify(value,null,2))}</pre>`;
-    const final=promptTrace.findLast(t=>t.values?.最终正向!==undefined);
+    const tags=historyTags(info);
     return `<pre>${esc(JSON.stringify(configuration,null,2))}</pre>`+
-        (final?`<details class="cosji-prompt-final"><summary>最终提交 Tag（正向 / 负向）</summary>${block('正向',final.values.最终正向)}${block('负向',final.values.最终负向)}</details>`:'')+
+        (tags.positive?`<details class="cosji-prompt-final" open><summary>生图 Tag（正向 / 负向）</summary>${block('正向',tags.positive)}${block('负向',tags.negative||'（空）')}</details>`:'')+
         (promptTrace.length?`<details class="cosji-prompt-trace"><summary>提示词替换与合并过程（${promptTrace.length} 步）</summary>${promptTrace.map((t,i)=>`<details><summary>${i+1}. ${esc(t.stage)}</summary>${Object.entries(t.values).map(([key,value])=>block(key,value)).join('')}</details>`).join('')}</details>`:'');
 }
 let store,settings,requests=new Map(),openPanel=()=>{};
@@ -29,7 +30,7 @@ export function historyRequest(data){
     if(!store)return;
     const existing=requests.get(data.id);
     if(existing&&!store.terminal.has(store.get(existing)?.state))return existing;
-    const id=historyStart('实际生图',{请求ID:data.id,提示词字数:String(data.prompt||'').length,宽:data.width,高:data.height},data.cosjiHistoryId||'');
+    const id=historyStart('实际生图',{请求ID:data.id,原始Tag:String(data.prompt||''),提示词字数:String(data.prompt||'').length,宽:data.width,高:data.height},data.cosjiHistoryId||'');
     requests.set(data.id,id);
     historyStep(id,'等待生图处理器接收');
     if(data.cosjiHistoryId)historyStep(data.cosjiHistoryId,'已触发实际生图，等待后端结果');
@@ -56,7 +57,7 @@ export function initHistory(s,save,{cache,test}={}){
         if(!panel.classList.contains('active'))return;
         const flags=snapshot();
         const pagination=historyPage(store.rows,page,pageSize);page=pagination.page;
-        panel.innerHTML=`<h2>生图任务历史</h2><p>${s.scriptEnabled?'插件已启用':'⚠ 插件总开关已关闭，点击生成不会向 ComfyUI 发请求。请到“主要设置”开启“启用插件”。'}</p><p>当前地址：${esc(flags.ComfyUI地址)} · 模式：${esc(flags.生图模式)}</p><p>记录提示词处理与实际生图两段。展开查看时间线、连接和请求编号；最近 100 条已结束任务保留在本地。</p><button class="cosji-button" data-history-export>导出诊断信息</button><div class="cosji-history-list">${store.rows.length?pagination.rows.map(r=>`<details data-history-id="${esc(r.id)}" ${expanded.has(r.id)?'open':''}><summary>${esc(new Date(r.created).toLocaleString())} · ${esc(r.kind)} · ${esc(({running:'进行中',waiting:'等待操作',success:'成功',failed:'失败',cancelled:'已取消',interrupted:'追踪中断'})[r.state])}<br><strong>${esc(r.stage)}</strong></summary><p>任务：${esc(r.id)}${r.parent?' · 来源任务：'+esc(r.parent):''} · 已耗时 ${Math.round((r.updated-r.created)/1000)} 秒${r.state==='running'?' · 此阶段已等待 '+Math.round((Date.now()-r.updated)/1000)+' 秒':''}</p>${renderInfo(r.info)}<ol>${r.events.map(e=>`<li>${esc(new Date(e.time).toLocaleTimeString())} — ${esc(e.stage)}</li>`).join('')}</ol>${store.removable(r)?`<button class="cosji-button" data-history-remove="${esc(r.id)}">删除此记录</button>`:''}</details>`).join(''):'<p>暂无记录。更新前的点击无法回溯，请再次操作后查看这里。</p>'}</div>`;
+        panel.innerHTML=`<h2>生图任务历史</h2><p>${s.scriptEnabled?'插件已启用':'⚠ 插件总开关已关闭，点击生成不会向 ComfyUI 发请求。请到“主要设置”开启“启用插件”。'}</p><p>当前地址：${esc(flags.ComfyUI地址)} · 模式：${esc(flags.生图模式)}</p><p>记录提示词处理与实际生图两段。展开查看时间线、连接和请求编号；最近 100 条已结束任务保留在本地。</p><button class="cosji-button" data-history-export>导出诊断信息</button><div class="cosji-history-list">${store.rows.length?pagination.rows.map(r=>`<details data-history-id="${esc(r.id)}" ${expanded.has(r.id)?'open':''}><summary>${esc(new Date(r.created).toLocaleString())} · ${esc(r.kind)} · ${esc(({running:'进行中',waiting:'等待操作',success:'成功',failed:'失败',cancelled:'已取消',interrupted:'追踪中断'})[r.state])}<br><strong>${esc(r.stage)}</strong></summary><p>任务：${esc(r.id)}${r.parent?' · 来源任务：'+esc(r.parent):''} · 已耗时 ${Math.round((r.updated-r.created)/1000)} 秒${r.state==='running'?' · 此阶段已等待 '+Math.round((Date.now()-r.updated)/1000)+' 秒':''}</p>${r.info.图片缓存?`<button class="cosji-button" data-history-view="${esc(r.id)}">查看图片</button>`:''}${renderInfo(r.info)}<ol>${r.events.map(e=>`<li>${esc(new Date(e.time).toLocaleTimeString())} — ${esc(e.stage)}</li>`).join('')}</ol>${store.removable(r)?`<button class="cosji-button" data-history-remove="${esc(r.id)}">删除此记录</button>`:''}</details>`).join(''):'<p>暂无记录。更新前的点击无法回溯，请再次操作后查看这里。</p>'}</div>`;
         const check=document.createElement('button');check.className='cosji-button';check.dataset.historyCheck='';check.textContent='检查连接与配置';
         const toolbar=document.createElement('div');toolbar.className='cosji-row';
         toolbar.innerHTML=`<button class="cosji-button" data-history-prev ${page===1?'disabled':''}>上一页</button><span>第 ${page} / ${pagination.pages} 页 · 共 ${pagination.total} 条</span><button class="cosji-button" data-history-next ${page===pagination.pages?'disabled':''}>下一页</button><label>每页 <select data-history-size>${[10,20,50].map(n=>`<option value="${n}" ${n===pagination.size?'selected':''}>${n} 条</option>`).join('')}</select></label><button class="cosji-button" data-history-clear>清理已结束任务</button><button class="cosji-button" data-history-undo ${s.cosji.historyTrash?.length?'':'disabled'}>撤销上次清理</button>`;
@@ -73,12 +74,92 @@ export function initHistory(s,save,{cache,test}={}){
         panel.querySelectorAll('details[data-history-id]').forEach(row=>{
             [row,...row.querySelectorAll('details')].forEach((d,i)=>{
                 const key=i?row.dataset.historyId+':prompt:'+i:row.dataset.historyId;
-                d.open=expanded.has(key);
-                d.addEventListener('toggle',()=>{d.open?expanded.add(key):expanded.delete(key);});
+                d.open=expanded.has(key)||(i>0&&d.classList.contains('cosji-prompt-final')&&!expanded.has(key+':closed'));
+                d.addEventListener('toggle',()=>{if(d.open){expanded.add(key);expanded.delete(key+':closed');}else{expanded.delete(key);expanded.add(key+':closed');}});
             });
         });
     }
-    store=createHistory(s,save,render);
+    function showMedia(id){
+        const entries=store.rows.filter(row=>row.info.图片缓存);
+        let index=entries.findIndex(row=>row.id===id),revision=0,objectUrl,activeBlob;
+        if(index<0)return;
+        const dialog=document.createElement('dialog');dialog.className='cosji-dialog cosji-history-viewer';
+        dialog.innerHTML=`<div class="cosji-viewer-stage">
+            <div class="cosji-viewer-counter" data-count></div>
+            <button type="button" class="cosji-viewer-close" data-corner-close aria-label="关闭图片查看" title="关闭（Esc）">×</button>
+            <button type="button" class="cosji-viewer-arrow cosji-viewer-prev" data-back aria-label="上一张" title="上一张（←）">‹</button>
+            <div class="cosji-viewer-canvas" data-media></div><p class="cosji-viewer-status" data-status role="status"></p>
+            <button type="button" class="cosji-viewer-arrow cosji-viewer-next" data-forward aria-label="下一张" title="下一张（→）">›</button>
+        </div>
+        <aside class="cosji-viewer-tags" data-tag-panel><header><h3>图片 Tag</h3><span>本次生图提交的提示词</span></header><p data-label></p><h4>正向 Tag</h4><pre data-positive></pre><h4>负向 Tag</h4><pre data-negative></pre></aside>
+        <footer class="cosji-viewer-dock"><div class="cosji-viewer-mode-switch" role="group" aria-label="图片查看模式"><button type="button" data-view-mode="image" aria-pressed="false">仅看图</button><button type="button" data-view-mode="tags" aria-pressed="false">看图＋Tag</button></div><button type="button" class="cosji-viewer-action" data-fullscreen>⛶ 沉浸全屏</button><button type="button" class="cosji-viewer-action" data-download disabled>↓ 下载图片</button><span class="cosji-viewer-hint">← → 切图 · Esc 关闭</span></footer>`;
+        const find=selector=>dialog.querySelector(selector);
+        function setViewMode(mode,persist=false){
+            mode=mode==='image'?'image':'tags';dialog.dataset.viewMode=mode;
+            find('[data-tag-panel]').hidden=mode==='image';
+            dialog.querySelectorAll('[data-view-mode]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.viewMode===mode)));
+            if(persist){s.cosji.historyViewMode=mode;save();}
+        }
+        dialog.querySelectorAll('[data-view-mode]').forEach(button=>{button.onclick=()=>setViewMode(button.dataset.viewMode,true);});
+        setViewMode(s.cosji.historyViewMode);
+        async function display(){
+            const token=++revision,row=entries[index],tags=historyTags(row.info);activeBlob=null;
+            find('[data-download]').disabled=true;
+            if(objectUrl){URL.revokeObjectURL(objectUrl);objectUrl=null;}
+            find('[data-count]').textContent=`${index+1} / ${entries.length}`;
+            find('[data-back]').disabled=index===0;find('[data-forward]').disabled=index===entries.length-1;
+            find('[data-label]').textContent=new Date(row.created).toLocaleString()+' · '+row.kind;
+            find('[data-positive]').textContent=tags.positive||'此记录未保存 Tag';
+            find('[data-negative]').textContent=tags.negative||'（空）';
+            find('[data-media]').replaceChildren();find('[data-status]').textContent='正在读取图片…';
+            try{
+                const blob=await readHistoryMedia(row.info.图片缓存);
+                if(token!==revision)return;
+                if(!blob)throw new Error('图片缓存已被清理或不可用');
+                const media=document.createElement(blob.type.startsWith('video/')?'video':'img');
+                if(media.tagName==='VIDEO')media.controls=true;
+                media.alt='生图历史图片';
+                media.onerror=()=>{find('[data-status]').textContent='图片无法解码';};
+                activeBlob=blob;objectUrl=URL.createObjectURL(blob);media.src=objectUrl;
+                find('[data-media]').append(media);find('[data-status]').textContent='';find('[data-download]').disabled=false;
+                find('[data-download]').textContent=blob.type.startsWith('video/')?'↓ 下载视频':'↓ 下载图片';
+            }catch(error){if(token===revision)find('[data-status]').textContent=safeError(error);}
+        }
+        const move=delta=>{if(index+delta<0||index+delta>=entries.length)return;index+=delta;display();};
+        find('[data-back]').onclick=()=>move(-1);find('[data-forward]').onclick=()=>move(1);
+        find('[data-corner-close]').onclick=()=>dialog.close();
+        find('[data-download]').onclick=()=>{
+            if(!activeBlob||!objectUrl)return;
+            const link=document.createElement('a'),extension=activeBlob.type.split('/')[1]?.split(';')[0]||'png';
+            link.href=objectUrl;link.download='cosji-'+entries[index].id+'.'+extension.replace('svg+xml','svg');link.click();
+        };
+        const updateFullscreen=()=>{find('[data-fullscreen]').textContent=document.fullscreenElement===dialog||dialog.classList.contains('cosji-viewer-immersive')?'⛶ 退出全屏':'⛶ 沉浸全屏';};
+        find('[data-fullscreen]').onclick=async()=>{
+            if(document.fullscreenElement===dialog){await document.exitFullscreen();}
+            else if(dialog.classList.contains('cosji-viewer-immersive'))dialog.classList.remove('cosji-viewer-immersive');
+            else{try{if(!dialog.requestFullscreen)throw Error();await dialog.requestFullscreen();}catch{dialog.classList.add('cosji-viewer-immersive');}}
+            updateFullscreen();
+        };
+        document.addEventListener('fullscreenchange',updateFullscreen);
+        const onKey=event=>{
+            if(event.key==='ArrowLeft'||event.key==='ArrowRight'){event.preventDefault();event.stopPropagation();move(event.key==='ArrowLeft'?-1:1);}
+            if(event.key==='Escape'&&dialog.classList.contains('cosji-viewer-immersive')){event.preventDefault();event.stopPropagation();dialog.classList.remove('cosji-viewer-immersive');updateFullscreen();}
+        };
+        document.addEventListener('keydown',onKey,true);
+        dialog.addEventListener('close',()=>{
+            document.removeEventListener('keydown',onKey,true);document.removeEventListener('fullscreenchange',updateFullscreen);
+            if(document.fullscreenElement===dialog)document.exitFullscreen().catch(()=>{});
+            revision++;if(objectUrl)URL.revokeObjectURL(objectUrl);dialog.remove();
+        });
+        document.body.append(dialog);dialog.showModal();display();
+    }
+    let retainedIds='';
+    const prune=()=>{
+        const ids=[...(s.cosji?.taskHistory||[]),...(s.cosji?.historyTrash||[])].map(row=>row.id);
+        const signature=JSON.stringify(ids.sort());if(signature===retainedIds)return;retainedIds=signature;
+        pruneHistoryMedia(ids).catch(()=>{retainedIds='';});
+    };
+    store=createHistory(s,save,()=>{render();prune();});prune();
     openPanel=()=>{
         document.querySelectorAll('.st-chatu8-nav-link, .st-chatu8-tab-content').forEach(el=>el.classList.remove('active'));
         panel.classList.add('active');nav.classList.add('active');document.querySelector('#ch-settings-modal').style.display='grid';s.lastTab='cosji-history';render();
@@ -86,6 +167,7 @@ export function initHistory(s,save,{cache,test}={}){
     nav.addEventListener('click',e=>{e.preventDefault();openPanel();});
     panel.addEventListener('change',e=>{if(!e.target.matches('[data-history-size]'))return;pageSize=Number(e.target.value);page=1;s.cosji.historyPageSize=pageSize;save();render();});
     panel.addEventListener('click',async e=>{
+        const view=e.target.closest('[data-history-view]');if(view){showMedia(view.dataset.historyView);return;}
         if(e.target.closest('[data-history-prev]')){page--;render();return;}
         if(e.target.closest('[data-history-next]')){page++;render();return;}
         if(e.target.closest('[data-history-clear]')){store.remove();render();return;}
@@ -130,16 +212,22 @@ export function initHistory(s,save,{cache,test}={}){
         }catch(error){historyStep(id,error,{},'failed');}
     });
     panel.addEventListener('click',e=>{if(!e.target.closest('[data-history-export]'))return;const url=URL.createObjectURL(new Blob([JSON.stringify({version:1,current:snapshot(),tasks:store.rows},null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download='cosji-generation-history.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);});
-    eventSource.on('generate-image-request',historyRequest);
+    // Tavern awaits listeners sequentially; record before the backend can finish.
+    if(eventSource.makeFirst)eventSource.makeFirst('generate-image-request',historyRequest);
+    else eventSource.on('generate-image-request',historyRequest);
     eventSource.on('generate-image-response',data=>{
         const id=requests.get(data.id),row=store.get(id);if(!row)return;
         const ok=data.success===true&&!!data.imageData;
-        historyStep(id,ok?'图片已返回，已交给聊天界面显示':safeError(data.error||'后端未返回图片'),{结果类型:data.format||'image'},ok?'success':'failed');
+        historyStep(id,ok?'图片已返回，已交给聊天界面显示':safeError(data.error||'后端未返回图片'),{结果类型:data.format||'image',...(ok&&data.prompt?{生成Tag:data.prompt}:{})},ok?'success':'failed');
+        if(ok)saveHistoryMedia(id,data.imageData,data.format).then(key=>{
+            if(!store.get(id))return;
+            Object.assign(row.info,{图片缓存:key});save();render();
+        }).catch(error=>{row.info.图片查看错误=safeError(error);save();render();});
         if(row.parent){
             const parent=store.get(row.parent),children=store.rows.filter(r=>r.parent===row.parent);
             const completed=children.filter(r=>store.terminal.has(r.state)).length,expected=parent?.info?.识别图片数||children.length;
             historyStep(row.parent,`已返回 ${completed}/${expected} 张，成功 ${children.filter(r=>r.state==='success').length} 张`,{},completed>=expected?(children.some(r=>r.state==='failed')?'failed':'success'):'running');
         }
     });
-    setInterval(render,5000);
+    setInterval(()=>{if(store.rows.some(row=>row.state==='running'))render();},5000);
 }
