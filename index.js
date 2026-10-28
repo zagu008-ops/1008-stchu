@@ -51743,6 +51743,16 @@ function buildComfyUIRefVideoWorkflow(rawJson, promptText, uploadedImages, uploa
       }
     }
   }
+  // API prompts do not apply canvas mode=4; remove inactive optional media.
+  const inactiveMedia = new Set(Object.entries(promptObj)
+    .filter(([, node]) => node.mode === 4 && ["LoadImage", "LoadAudio"].includes(node.class_type))
+    .map(([id]) => id));
+  for (const id of inactiveMedia) delete promptObj[id];
+  for (const node of Object.values(promptObj)) {
+    for (const [name, value] of Object.entries(node.inputs || {})) {
+      if (Array.isArray(value) && inactiveMedia.has(String(value[0]))) delete node.inputs[name];
+    }
+  }
   return { promptObj, seedUsed: seed };
 }
 async function generateComfyUIRefVideo({ prompt: rawPrompt, width: Xwidth, height: Xheight, change }) {

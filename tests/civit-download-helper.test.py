@@ -2,6 +2,7 @@ import asyncio
 import hashlib
 import importlib.util
 import json
+import os
 import sys
 import tempfile
 import types
@@ -83,7 +84,12 @@ class HelperTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(existing.read_bytes(), b'old')
         self.assertNotEqual(self.job['path'], str(existing.relative_to(self.root)))
     async def test_symlink_escape_rejected(self):
-        (self.root / self.job['folder']).symlink_to(self.root.parent, target_is_directory=True)
+        try:
+            (self.root / self.job['folder']).symlink_to(self.root.parent, target_is_directory=True)
+        except OSError as error:
+            if getattr(error, 'winerror', None) == 1314:
+                self.skipTest('Windows symbolic link privilege is unavailable')
+            raise
         await self.run_download(Response(b'model'))
         self.assertEqual(self.job['state'], 'failed')
         self.assertIn('目录', self.job['error'])
@@ -118,7 +124,8 @@ class HelperTests(unittest.IsolatedAsyncioTestCase):
         saved=json.loads(cfg_path.read_text())
         self.assertEqual(saved['oauth_refresh_token'],'private-refresh')
         self.assertNotIn('private-access',json.dumps(auth))
-        self.assertEqual(cfg_path.stat().st_mode & 0o777,0o600)
+        if os.name != 'nt':
+            self.assertEqual(cfg_path.stat().st_mode & 0o777,0o600)
 
     async def test_oauth_denial_and_missing_permission(self):
         auth={'id':'auth-test','state':'pending','clientId':'our-app'}
